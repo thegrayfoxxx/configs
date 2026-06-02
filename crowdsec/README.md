@@ -98,9 +98,8 @@ docker exec crowdsec-lapi cscli machines add dashboard \
 Имя и пароль укажи в `.env`:
 
 ```dotenv
-CROWDSEC_URL=http://crowdsec-lapi:8080
-CROWDSEC_USER=dashboard
-CROWDSEC_PASSWORD=пароль-для-панели
+CROWDSEC_USER=имя-машины
+CROWDSEC_PASSWORD=пароль-машины
 ```
 
 После этого пересоздай контейнер dashboard, чтобы он применил credentials:
