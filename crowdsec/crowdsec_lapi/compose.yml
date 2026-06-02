@@ -2,6 +2,7 @@ services:
   crowdsec-lapi:
     image: crowdsecurity/crowdsec:latest
     container_name: crowdsec-lapi
+    hostname: crowdsec-lapi
     restart: unless-stopped
     environment:
       - DISABLE_AGENT=true
@@ -16,7 +17,29 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - crowdsec-net
+
+  crowdsec-dashboard:
+    image: ghcr.io/theduffman85/crowdsec-web-ui:latest
+    container_name: crowdsec-dashboard
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8083:3000
+    environment:
+      - CROWDSEC_URL=http://crowdsec-lapi:8080
+      - CROWDSEC_USER=${CROWDSEC_USER} # Изменить в .env
+      - CROWDSEC_PASSWORD=${CROWDSEC_PASSWORD} # Изменить в .env
+    volumes:
+      - cs-dashboard-data:/app/data
+    networks:
+      - crowdsec-net
 
 volumes:
   crowdsec-data:
   crowdsec-config:
+  cs-dashboard-data:
+
+networks:
+  crowdsec-net:
+    driver: bridge
