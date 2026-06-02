@@ -1,0 +1,40 @@
+services:
+  crowdsec-agent:
+    image: crowdsecurity/crowdsec:latest
+    container_name: crowdsec-agent
+    restart: unless-stopped
+    environment:
+      - DISABLE_LOCAL_API=true
+      - LOCAL_API_URL=https://api.crowdsec.example.com # Изменить
+      - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd
+      - TZ=UTC # Изменить
+      - AGENT_USERNAME=${AGENT_USERNAME} # Изменить в .env
+      - AGENT_PASSWORD=${AGENT_PASSWORD} # Изменить в .env
+    volumes:
+      - crowdsec-data:/var/lib/crowdsec/data
+      - crowdsec-config:/etc/crowdsec
+      - ./config/acquis.yaml:/etc/crowdsec/acquis.yaml
+      - /var/log/auth.log:/var/log/auth.log:ro
+      - /var/log/syslog:/var/log/syslog:ro
+
+  crowdsec-bouncer:
+    image: ghcr.io/shgew/cs-firewall-bouncer-docker:latest
+    container_name: crowdsec-bouncer
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - MODE=iptables
+      - API_URL=https://api.crowdsec.example.com
+      - API_KEY=${API_KEY}
+    volumes:
+      - ./config/crowdsec-firewall-bouncer.yaml:/config/crowdsec-firewall-bouncer.yaml:ro
+      - /etc/localtime:/etc/localtime:ro
+
+volumes:
+  crowdsec-data:
+  crowdsec-config:

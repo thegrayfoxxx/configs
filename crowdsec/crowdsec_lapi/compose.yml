@@ -1,0 +1,22 @@
+services:
+  crowdsec-lapi:
+    image: crowdsecurity/crowdsec:latest
+    container_name: crowdsec-lapi
+    restart: unless-stopped
+    environment:
+      - DISABLE_AGENT=true
+      - TZ=UTC # Изменить
+    volumes:
+      - crowdsec-data:/var/lib/crowdsec/data
+      - crowdsec-config:/etc/crowdsec
+    ports:
+      - 127.0.0.1:8082:8080 # Порт который будет слушать контейнер и на который надо направлять запросы после реверс проксирования (можно изменить)
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  crowdsec-data:
+  crowdsec-config:
