@@ -34,7 +34,7 @@ flowchart LR
 Скачай конфиги и запусти:
 
 ```bash
-curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --strip=2 '*/crowdsec/crowdsec_lapi'
+curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_lapi'
 cd crowdsec_lapi
 docker compose up -d
 ```
@@ -106,7 +106,7 @@ docker exec crowdsec-lapi cscli collections install crowdsecurity/nginx
 Скачай конфиги:
 
 ```bash
-curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --strip=2 '*/crowdsec/crowdsec_node'
+curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_node'
 cd crowdsec_node
 ```
 
