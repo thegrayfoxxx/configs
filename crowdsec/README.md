@@ -130,8 +130,7 @@ cd crowdsec_node
 **Регистрация агента:**
 
 ```bash
-docker exec crowdsec-lapi cscli machines add \
-  --name имя-агента \
+docker exec crowdsec-lapi cscli machines add имя-агента \
   --password пароль-агента \
   --force
 ```
