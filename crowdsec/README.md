@@ -165,8 +165,7 @@ cd crowdsec_node
 
 | Параметр | Где | Что сделать |
 |---|---|---|
-| `LOCAL_API_URL` | `environment` агента | Указать URL твоего LAPI (домен из reverse proxy) |
-| `API_URL` | `environment` баунсера | Тот же URL LAPI |
+| `API_URL` | `.env` | Указать URL твоего LAPI (домен из reverse proxy) |
 | `TZ` | `environment` агента | Указать свой часовой пояс |
 | Пути к логам | `volumes` агента | Подставить актуальные пути для твоей системы |
 
@@ -209,6 +208,7 @@ cp .env.example .env
 ```
 
 ```dotenv
+API_URL=https://crowdsec.example.com
 AGENT_USERNAME=имя-агента
 AGENT_PASSWORD=пароль-агента
 API_KEY=токен-баунсера
