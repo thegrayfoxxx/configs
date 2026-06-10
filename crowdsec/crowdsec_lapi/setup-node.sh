@@ -28,7 +28,7 @@ docker exec crowdsec-lapi cscli machines add "$AGENT_NAME" \
   --force
 
 echo "Регистрирую баунсер '$BOUNCER_NAME'..."
-API_KEY=$(docker exec crowdsec-lapi cscli bouncers add "$BOUNCER_NAME" | sed -n 's/.*api_key="\([^"]*\)".*/\1/p')
+API_KEY=$(docker exec crowdsec-lapi cscli bouncers add "$BOUNCER_NAME" -o raw)
 
 ENV_VALUES="\"API_URL=$API_URL\"
 \"TZ=\\\$(timedatectl show --property=Timezone --value)\"
