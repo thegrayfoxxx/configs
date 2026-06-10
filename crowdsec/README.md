@@ -123,7 +123,7 @@ docker compose up -d
 Создай API-ключ для локального баунсера на работающем LAPI:
 
 ```bash
-docker exec crowdsec-lapi cscli bouncers add local-bounce -o raw
+docker exec crowdsec-lapi cscli bouncers add local-bouncer
 ```
 
 Команда вернёт ключ. Скопируй его в `.env`:
