@@ -14,7 +14,7 @@ services:
       - /var/log/auth.log:/var/log/auth.log:ro
       - /var/log/syslog:/var/log/syslog:ro
     ports:
-      - 127.0.0.1:8082:8080 # Порт который будет слушать контейнер и на который надо направлять запросы после реверс проксирования (можно изменить)
+      - 127.0.0.1:${API_LOCAL_PORT}:8080 # Можно изменить в .env
     healthcheck:
       test: ["CMD", "cscli", "lapi", "status"]
       interval: 30s
@@ -35,7 +35,7 @@ services:
       - no-new-privileges:true
     environment:
       - MODE=iptables
-      - API_URL=${API_LOCAL_URL} # Изменить в .env
+      - API_URL=127.0.0.1:${API_LOCAL_PORT} # Можно изменить в .env
       - API_KEY=${API_KEY_FOR_LOCAL_BOUNCER} # Изменить в .env
     volumes:
       - ./config/crowdsec-firewall-bouncer.yaml:/config/crowdsec-firewall-bouncer.yaml:ro
