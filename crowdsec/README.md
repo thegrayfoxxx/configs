@@ -30,7 +30,8 @@ crowdsec/
 ├── crowdsec_lapi/
 │   ├── compose-example.yml          # Docker Compose для LAPI-сервера и Dashboard
 │   ├── .env.example         # Шаблон переменных для Dashboard
-│   └── update.sh            # Скрипт обновления
+│   ├── update.sh            # Скрипт обновления конфигов
+│   └── setup-node.sh        # Скрипт для регистрации ноды на LAPI
 └── crowdsec_node/
     ├── compose-example.yml  # Шаблон Docker Compose для агента + баунсера
     ├── .env.example         # Шаблон переменных окружения
@@ -85,6 +86,7 @@ cp .env.example .env
 
 | Переменная | Что указать |
 |---|---|
+| `API_URL` | URL твоего LAPI (домен из reverse proxy) |
 | `TZ` | Часовой пояс, например `Europe/Moscow` |
 
 ### Шаг 3 — запусти LAPI
@@ -97,6 +99,8 @@ docker compose up -d
 
 Сейчас Dashboard запущен, но не может подключиться к LAPI — в `.env` пока плейсхолдеры. Нужно зарегистрировать машину и обновить `.env`.
 
+> Регистрация Dashboard делается вручную. Скрипт `setup-node.sh` для этого не используется — он только для нод.
+
 Зарегистрируй машину на работающем LAPI:
 
 ```bash
@@ -105,7 +109,7 @@ docker exec crowdsec-lapi cscli machines add dashboard \
   --force
 ```
 
-Обнови `.env` реальными данными:
+Обнови `.env` — укажи имя и пароль машины:
 
 ```dotenv
 CROWDSEC_USER=dashboard
@@ -117,6 +121,8 @@ CROWDSEC_PASSWORD=пароль-для-панели
 ```bash
 docker compose up -d
 ```
+
+Теперь `API_URL` из `.env` будет использоваться скриптом `setup-node.sh` при регистрации новых нод.
 
 > **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy (IP-белый список, базовая аутентификация или VPN).
 
@@ -155,6 +161,18 @@ docker exec crowdsec-lapi cscli machines list
 docker exec crowdsec-lapi cscli bouncers list
 ```
 
+**Удаление агента (машины):**
+
+```bash
+docker exec crowdsec-lapi cscli machines delete имя-агента
+```
+
+**Удаление баунсера:**
+
+```bash
+docker exec crowdsec-lapi cscli bouncers delete имя-баунсера
+```
+
 ---
 
 ## 2. CrowdSec Node (агент + баунсер)
@@ -165,6 +183,19 @@ docker exec crowdsec-lapi cscli bouncers list
 - **crowdsec-bouncer** — получает от LAPI решения и блокирует IP через iptables/nftables.
 
 > Перед началом убедись, что LAPI уже запущен и доступен через reverse proxy.
+
+Есть два способа настройки ноды:
+
+**Вариант 1 — через скрипт (быстро).** Зарегистрируй ноду на LAPI одной командой, скрипт сам всё сделает и выведет готовую команду для ноды:
+
+```bash
+cd crowdsec_lapi
+./setup-node.sh имя-ноды
+```
+
+Скрипт создаст `имя-ноды-agent` и `имя-ноды-bouncer`, сгенерирует пароль, получит API-токен и выведет команду для выполнения на ноде.
+
+**Вариант 2 — вручную (пошагово).** Выполни шаги 1–4 ниже.
 
 ### Шаг 1 — скачай конфиги
 
@@ -188,7 +219,7 @@ cp .env.example .env
 
 > Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`. Проверь и подправь.
 
-### Шаг 3 — зарегистрируй агента и баунсера на LAPI
+### Шаг 3 — зарегистрируй ноду на LAPI (вручную)
 
 Сгенерируй пароль для агента:
 
