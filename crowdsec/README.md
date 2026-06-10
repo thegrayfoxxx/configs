@@ -13,13 +13,29 @@
 ## Схема работы
 
 ```mermaid
-flowchart LR
-    RP["Reverse Proxy"] --> LAPI["crowdsec-lapi"]
-    LAPI ---|внутренняя сеть| Dash["crowdsec-dashboard"]
-    LAPI --- Vol[(Volumes)]
-    Agent["crowdsec-agent"] -->|HTTPS| RP
-    Bouncer["crowdsec-bouncer"] -->|HTTPS| RP
-    Bouncer -->|iptables/nftables| IP["Блокировка IP"]
+flowchart TB
+    subgraph LAPI_SERVER["LAPI сервер"]
+        direction LR
+        subgraph LAPI[" "]
+            LAPI_CORE["crowdsec-lapi"]
+            LAPI_AGENT["crowdsec-agent<br/>(читает логи)"]
+        end
+        LAPI_CORE --> LAPI_AGENT
+        LAPI_CORE ---|внутренняя<br/>сеть| DASH["crowdsec-dashboard<br/>:8083"]
+        LAPI_CORE ---|host network| LBOUNCER["crowdsec-bouncer<br/>(локальный)"]
+        LAPI_CORE --- VOL[(Volumes)]
+        LBOUNCER -->|iptables/nftables| DROP1["Блокировка IP"]
+    end
+
+    subgraph REMOTE["Удалённая нода"]
+        RAGENT["crowdsec-agent"]
+        RBOUNCER["crowdsec-bouncer"]
+        RBOUNCER -->|iptables/nftables| DROP2["Блокировка IP"]
+    end
+
+    RP["Reverse Proxy<br/>:443"] -->|127.0.0.1:8082| LAPI_CORE
+    RAGENT -->|HTTPS| RP
+    RBOUNCER -->|HTTPS| RP
 ```
 
 ## Структура
@@ -28,12 +44,15 @@ flowchart LR
 crowdsec/
 ├── README.md
 ├── crowdsec_lapi/
-│   ├── compose-example.yml          # Docker Compose для LAPI-сервера и Dashboard
-│   ├── .env.example         # Шаблон переменных для Dashboard
+│   ├── compose-example.yml          # Docker Compose: LAPI + Dashboard + bouncer
+│   ├── .env.example         # Шаблон переменных
 │   ├── update.sh            # Скрипт обновления конфигов
-│   └── setup-node.sh        # Скрипт для регистрации ноды на LAPI
+│   ├── setup-node.sh        # Скрипт для регистрации ноды на LAPI
+│   └── config/
+│       ├── acquis.yaml                          # Настройка источников логов на LAPI
+│       └── crowdsec-firewall-bouncer.yaml       # Настройки локального баунсера
 └── crowdsec_node/
-    ├── compose-example.yml  # Шаблон Docker Compose для агента + баунсера
+    ├── compose-example.yml  # Шаблон Docker Compose для удалённой ноды (agent + bouncer)
     ├── .env.example         # Шаблон переменных окружения
     ├── update.sh            # Скрипт обновления
     └── config/
@@ -47,18 +66,20 @@ crowdsec/
 
 ## Порядок настройки
 
-1. **LAPI** — поднять центральный сервер с reverse proxy и Dashboard.
+1. **LAPI** — поднять центральный сервер с LAPI, Dashboard и локальным баунсером.
 2. **Node** — на каждой удалённой ноде зарегистрировать агента и баунсера на LAPI, развернуть стек.
 
 ---
 
 ## 1. LAPI-сервер
 
+На LAPI-сервере запускается LAPI, Dashboard, агент (читает логи самого сервера) и локальный баунсер.
+
 ### Reverse proxy
 
-LAPI слушает на `127.0.0.1:8082` и не должен быть доступен напрямую. Настрой reverse proxy (Nginx / Caddy / Traefik), который будет принимать HTTPS-запросы от агентов и баунсеров и проксировать их на `127.0.0.1:8082`.
+LAPI слушает на `127.0.0.1:8082` и не должен быть доступен напрямую. Настрой reverse proxy (Nginx / Caddy / Traefik), который будет принимать HTTPS-запросы от удалённых нод и проксировать их на `127.0.0.1:8082`.
 
-Полученный домен (`https://crowdsec.example.com`) понадобится позже в `API_URL` на нодах.
+Полученный домен (`https://crowdsec.example.com`) понадобится в `API_URL` для удалённых нод.
 
 ### Шаг 1 — скачай конфиги
 
@@ -79,15 +100,17 @@ cp .env.example .env
 | Параметр | Что сделать |
 |---|---|
 | `ports` | Порт на хосте (`8082`). Можно изменить, если занят |
+| Пути к логам | Подставить актуальные пути для твоей системы |
 
-> Конфиги CrowdSec хранятся в Docker volume `crowdsec-config`. Чтобы править их с хоста, замени volume на bind mount или заходи в контейнер: `docker exec -it crowdsec-lapi sh`.
+> Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`.
 
 **Что поправить в `.env`:**
 
 | Переменная | Что указать |
 |---|---|
-| `API_URL` | URL твоего LAPI (домен из reverse proxy) |
 | `TZ` | Часовой пояс, например `Europe/Moscow` |
+| `API_URL` | Внешний домен LAPI (для удалённых нод и скрипта `setup-node.sh`) |
+| `CROWDSEC_USER` / `CROWDSEC_PASSWORD` | Имя и пароль машины для Dashboard (заполнить после шага 5) |
 
 ### Шаг 3 — запусти LAPI
 
@@ -95,11 +118,27 @@ cp .env.example .env
 docker compose up -d
 ```
 
-### Шаг 4 — подключи Dashboard
+### Шаг 4 — зарегистрируй локальный баунсер
 
-Сейчас Dashboard запущен, но не может подключиться к LAPI — в `.env` пока плейсхолдеры. Нужно зарегистрировать машину и обновить `.env`.
+Создай API-ключ для локального баунсера на работающем LAPI:
 
-> Регистрация Dashboard делается вручную. Скрипт `setup-node.sh` для этого не используется — он только для нод.
+```bash
+docker exec crowdsec-lapi cscli bouncers add local-bounce -o raw
+```
+
+Команда вернёт ключ. Скопируй его в `.env`:
+
+```dotenv
+API_KEY_FOR_LOCAL_BOUNCER=полученный-ключ
+```
+
+Перезапусти стек, чтобы баунсер применил ключ:
+
+```bash
+docker compose up -d
+```
+
+### Шаг 5 — подключи Dashboard
 
 Зарегистрируй машину на работающем LAPI:
 
@@ -121,8 +160,6 @@ CROWDSEC_PASSWORD=пароль-для-панели
 ```bash
 docker compose up -d
 ```
-
-Теперь `API_URL` из `.env` будет использоваться скриптом `setup-node.sh` при регистрации новых нод.
 
 > **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy (IP-белый список, базовая аутентификация или VPN).
 

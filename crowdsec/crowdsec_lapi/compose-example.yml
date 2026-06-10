@@ -5,11 +5,14 @@ services:
     hostname: crowdsec-lapi
     restart: unless-stopped
     environment:
-      - DISABLE_AGENT=true
+      - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd
       - TZ=${TZ} # Изменить в .env
     volumes:
       - crowdsec-data:/var/lib/crowdsec/data
       - crowdsec-config:/etc/crowdsec
+      - ./config/acquis.yaml:/etc/crowdsec/acquis.yaml
+      - /var/log/auth.log:/var/log/auth.log:ro
+      - /var/log/syslog:/var/log/syslog:ro
     ports:
       - 127.0.0.1:8082:8080 # Порт который будет слушать контейнер и на который надо направлять запросы после реверс проксирования (можно изменить)
     healthcheck:
@@ -19,6 +22,24 @@ services:
       retries: 3
     networks:
       - crowdsec-net
+
+  crowdsec-bouncer:
+    image: ghcr.io/shgew/cs-firewall-bouncer-docker:latest
+    container_name: crowdsec-bouncer
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - MODE=iptables
+      - API_URL=${API_LOCAL_URL} # Изменить в .env
+      - API_KEY=${API_KEY_FOR_LOCAL_BOUNCER} # Изменить в .env
+    volumes:
+      - ./config/crowdsec-firewall-bouncer.yaml:/config/crowdsec-firewall-bouncer.yaml:ro
+      - /etc/localtime:/etc/localtime:ro
 
   crowdsec-dashboard:
     image: ghcr.io/theduffman85/crowdsec-web-ui:latest

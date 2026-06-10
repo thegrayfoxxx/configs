@@ -12,7 +12,8 @@ tar xzf /tmp/crowdsec-lapi.tar.gz \
   '*/crowdsec/crowdsec_lapi/compose-example.yml' \
   '*/crowdsec/crowdsec_lapi/.env.example' \
   '*/crowdsec/crowdsec_lapi/setup-node.sh' \
-  '*/crowdsec/crowdsec_lapi/update.sh'
+  '*/crowdsec/crowdsec_lapi/update.sh' \
+  '*/crowdsec/crowdsec_lapi/config/*'
 
 chmod +x setup-node.sh update.sh 2>/dev/null
 
