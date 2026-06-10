@@ -5,9 +5,9 @@ services:
     restart: unless-stopped
     environment:
       - DISABLE_LOCAL_API=true
-      - LOCAL_API_URL=${API_URL} # Изменить
+      - LOCAL_API_URL=${API_URL} # Изменить в .env
       - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd
-      - TZ=UTC # Изменить
+      - TZ=${TZ} # Изменить в .env
       - AGENT_USERNAME=${AGENT_USERNAME} # Изменить в .env
       - AGENT_PASSWORD=${AGENT_PASSWORD} # Изменить в .env
     volumes:
@@ -29,7 +29,7 @@ services:
       - no-new-privileges:true
     environment:
       - MODE=iptables
-      - API_URL=${API_URL} # Изменить
+      - API_URL=${API_URL} # Изменить в .env
       - API_KEY=${API_KEY} # Изменить в .env
     volumes:
       - ./config/crowdsec-firewall-bouncer.yaml:/config/crowdsec-firewall-bouncer.yaml:ro

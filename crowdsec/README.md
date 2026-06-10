@@ -29,10 +29,12 @@ crowdsec/
 ├── README.md
 ├── crowdsec_lapi/
 │   ├── compose.yml          # Docker Compose для LAPI-сервера и Dashboard
-│   └── .env.example         # Шаблон переменных для Dashboard
+│   ├── .env.example         # Шаблон переменных для Dashboard
+│   └── update.sh            # Скрипт обновления
 └── crowdsec_node/
-    ├── compose.yml           # Docker Compose для агента + баунсера
-    ├── .env.example          # Шаблон переменных окружения
+    ├── compose-example.yml  # Шаблон Docker Compose для агента + баунсера
+    ├── .env.example         # Шаблон переменных окружения
+    ├── update.sh            # Скрипт обновления
     └── config/
         ├── acquis.yaml                          # Настройка источников логов
         └── crowdsec-firewall-bouncer.yaml       # Настройки iptables/nftables баунсера
@@ -166,8 +168,8 @@ cd crowdsec_node
 | Параметр | Где | Что сделать |
 |---|---|---|
 | `API_URL` | `.env` | Указать URL твоего LAPI (домен из reverse proxy) |
-| `TZ` | `environment` агента | Указать свой часовой пояс |
-| Пути к логам | `volumes` агента | Подставить актуальные пути для твоей системы |
+| `TZ` | `.env` | Указать свой часовой пояс |
+| Пути к логам | `volumes` в `compose.yml` | Подставить актуальные пути для твоей системы |
 
 > Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`. Проверь и подправь.
 
@@ -201,20 +203,24 @@ docker exec crowdsec-lapi cscli bouncers add имя-баунсера
 
 ### Развёртывание
 
-1. Создай `.env` из шаблона и заполни:
+1. Скопируй шаблон `compose.yml` и создай `.env`:
 
 ```bash
+cp compose-example.yml compose.yml
 cp .env.example .env
 ```
 
+2. Заполни `.env`:
+
 ```dotenv
 API_URL=https://crowdsec.example.com
+TZ=Europe/Moscow
 AGENT_USERNAME=имя-агента
 AGENT_PASSWORD=пароль-агента
 API_KEY=токен-баунсера
 ```
 
-2. Запусти стек:
+3. Запусти стек:
 
 ```bash
 docker compose up -d
@@ -255,7 +261,7 @@ labels:
 
 Чтобы добавить другие источники (например, `/var/log/nginx/access.log`), допиши их в `filenames` и пробрось соответствующий volume в `compose.yml`.
 
-После изменения `acquis.yaml` перезапусти агента:
+После изменения `compose.yml` или конфигов перезапусти агента:
 
 ```bash
 docker compose restart crowdsec-agent
@@ -289,14 +295,14 @@ docker exec crowdsec-lapi cscli machines list
 
 ## Обновление
 
+Скрипты скачивают и обновляют файлы конфигов из репозитория.
+
 ```bash
 # LAPI
-cd $HOME/crowdsec_lapi
-docker compose pull
-docker compose up -d
+cd crowdsec_lapi
+./update.sh
 
 # Node
-cd $HOME/crowdsec_node
-docker compose pull
-docker compose up -d
+cd crowdsec_node
+./update.sh
 ```
