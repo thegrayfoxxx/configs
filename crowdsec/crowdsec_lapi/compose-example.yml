@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       - DISABLE_AGENT=true
-      - TZ=UTC # Изменить
+      - TZ=${TZ} # Изменить в .env
     volumes:
       - crowdsec-data:/var/lib/crowdsec/data
       - crowdsec-config:/etc/crowdsec
