@@ -152,6 +152,26 @@ docker restart crowdsec-lapi
 
 ```bash
 docker exec crowdsec-lapi cscli decisions list
+docker exec crowdsec-lapi cscli decisions delete --ip <IP>
+```
+
+**Алерты:**
+
+```bash
+docker exec crowdsec-lapi cscli alerts list
+docker exec crowdsec-lapi cscli alerts inspect <id>
+```
+
+**Метрики и статистика:**
+
+```bash
+docker exec crowdsec-lapi cscli metrics
+```
+
+**Логи контейнеров:**
+
+```bash
+docker compose logs -f
 ```
 
 **Машины и баунсеры:**
@@ -312,17 +332,41 @@ docker exec crowdsec-agent cscli lapi status
 docker exec crowdsec-lapi cscli machines list
 ```
 
+**На LAPI — проверить, что баунсер зарегистрирован:**
+
+```bash
+docker exec crowdsec-lapi cscli bouncers list
+```
+
+### Проверка баунсера
+
+Баунсер работает в режиме host network и блокирует IP через iptables/nftables.
+
+**Логи баунсера:**
+
+```bash
+docker compose logs crowdsec-bouncer
+```
+
+**Проверить правила блокировки:**
+
+```bash
+sudo ipset list crowdsec-blacklists-0 -t
+```
+
+В строке `Number of entries` — количество заблокированных IP.
+
+**Принудительно проверить блокировку (создать тестовое решение):**
+
+```bash
+docker exec crowdsec-lapi cscli decisions add --ip 1.2.3.4 --duration 1m
+# Подожди 10-15 секунд и проверь:
+sudo ipset list crowdsec-blacklists-0 2>/dev/null | grep 1.2.3.4 || sudo nft list table ip crowdsec 2>/dev/null | grep 1.2.3.4
+# Удали:
+docker exec crowdsec-lapi cscli decisions delete --ip 1.2.3.4
+```
+
 ---
-
-## Полезные команды
-
-| Команда | Описание |
-|---|---|
-| `docker exec crowdsec-lapi cscli metrics` | Метрики и статистика |
-| `docker exec crowdsec-lapi cscli alerts list` | Список срабатываний |
-| `docker exec crowdsec-lapi cscli alerts inspect <id>` | Детали срабатывания |
-| `docker exec crowdsec-lapi cscli decisions delete --ip <IP>` | Разблокировать IP |
-| `docker compose logs -f` | Логи контейнеров (из папки сервиса) |
 
 ## Обновление
 
