@@ -28,7 +28,7 @@ flowchart LR
 crowdsec/
 ├── README.md
 ├── crowdsec_lapi/
-│   ├── compose.yml          # Docker Compose для LAPI-сервера и Dashboard
+│   ├── compose-example.yml          # Docker Compose для LAPI-сервера и Dashboard
 │   ├── .env.example         # Шаблон переменных для Dashboard
 │   └── update.sh            # Скрипт обновления
 └── crowdsec_node/
@@ -47,8 +47,7 @@ crowdsec/
 ## Порядок настройки
 
 1. **LAPI** — поднять центральный сервер с reverse proxy и Dashboard.
-2. **Dashboard** — зарегистрировать машину, создать `.env`.
-3. **Node** — на каждой удалённой ноде зарегистрировать агента и баунсера на LAPI, развернуть стек.
+2. **Node** — на каждой удалённой ноде зарегистрировать агента и баунсера на LAPI, развернуть стек.
 
 ---
 
@@ -58,38 +57,47 @@ crowdsec/
 
 LAPI слушает на `127.0.0.1:8082` и не должен быть доступен напрямую. Настрой reverse proxy (Nginx / Caddy / Traefik), который будет принимать HTTPS-запросы от агентов и баунсеров и проксировать их на `127.0.0.1:8082`.
 
-Полученный домен (`https://crowdsec.example.com`) понадобится позже в `LOCAL_API_URL` и `API_URL` на нодах.
+Полученный домен (`https://crowdsec.example.com`) понадобится позже в `API_URL` на нодах.
 
-### Запуск
+### Шаг 1 — скачай конфиги
 
 ```bash
 curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_lapi'
 cd crowdsec_lapi
-docker compose up -d
 ```
 
-### Что нужно изменить
-
-| Параметр | Где искать | Что делать |
-|---|---|---|
-| `TZ` | `environment` (LAPI) | Указать свой часовой пояс, например `Europe/Moscow` |
-| `ports` | `ports` (LAPI) | Порт на хосте (`8082`). Можно изменить, если занят |
-
-> Конфиги CrowdSec хранятся в Docker volume `crowdsec-config`. Чтобы править их с хоста, замени volume на bind mount или заходи в контейнер: `docker exec -it crowdsec-lapi sh`.
-
-### CrowdSec Dashboard
-
-Вместе с LAPI запускается веб-интерфейс для просмотра алертов, решений и статистики. Доступен по адресу `http://IP-сервера:8083`.
-
-> **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy (IP-белый список, базовая аутентификация или VPN).
-
-Создай `.env` из шаблона:
+### Шаг 2 — подготовь файлы
 
 ```bash
+cp compose-example.yml compose.yml
 cp .env.example .env
 ```
 
-Dashboard подключается к LAPI как машина (machine). Зарегистрируй её:
+**Что поправить в `compose.yml`:**
+
+| Параметр | Что сделать |
+|---|---|
+| `ports` | Порт на хосте (`8082`). Можно изменить, если занят |
+
+> Конфиги CrowdSec хранятся в Docker volume `crowdsec-config`. Чтобы править их с хоста, замени volume на bind mount или заходи в контейнер: `docker exec -it crowdsec-lapi sh`.
+
+**Что поправить в `.env`:**
+
+| Переменная | Что указать |
+|---|---|
+| `TZ` | Часовой пояс, например `Europe/Moscow` |
+
+### Шаг 3 — запусти LAPI
+
+```bash
+docker compose up -d
+```
+
+### Шаг 4 — подключи Dashboard
+
+Сейчас Dashboard запущен, но не может подключиться к LAPI — в `.env` пока плейсхолдеры. Нужно зарегистрировать машину и обновить `.env`.
+
+Зарегистрируй машину на работающем LAPI:
 
 ```bash
 docker exec crowdsec-lapi cscli machines add dashboard \
@@ -97,18 +105,20 @@ docker exec crowdsec-lapi cscli machines add dashboard \
   --force
 ```
 
-Имя и пароль укажи в `.env`:
+Обнови `.env` реальными данными:
 
 ```dotenv
-CROWDSEC_USER=имя-машины
-CROWDSEC_PASSWORD=пароль-машины
+CROWDSEC_USER=dashboard
+CROWDSEC_PASSWORD=пароль-для-панели
 ```
 
-После этого пересоздай контейнер dashboard, чтобы он применил credentials:
+Перезапусти стек, чтобы Dashboard применил credentials:
 
 ```bash
 docker compose up -d
 ```
+
+> **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy (IP-белый список, базовая аутентификация или VPN).
 
 ### Команды управления LAPI
 
@@ -156,71 +166,61 @@ docker exec crowdsec-lapi cscli bouncers list
 
 > Перед началом убедись, что LAPI уже запущен и доступен через reverse proxy.
 
-### Скачай конфиги
+### Шаг 1 — скачай конфиги
 
 ```bash
 curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_node'
 cd crowdsec_node
 ```
 
-### Что нужно изменить
-
-| Параметр | Где | Что сделать |
-|---|---|---|
-| `API_URL` | `.env` | Указать URL твоего LAPI (домен из reverse proxy) |
-| `TZ` | `.env` | Указать свой часовой пояс |
-| Пути к логам | `volumes` в `compose.yml` | Подставить актуальные пути для твоей системы |
-
-> Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`. Проверь и подправь.
-
-### Подготовка на LAPI
-
-Зарегистрируй агента и баунсера на уже запущенном LAPI.
-
-**Агент (регистрируется как машина):**
-
-```bash
-docker exec crowdsec-lapi cscli machines add имя-агента \
-  --password пароль-агента \
-  --force
-```
-
-Сгенерировать пароль:
-
-```bash
-openssl rand -base64 32
-```
-
-> Имя и пароль передаются агенту через `.env` (`AGENT_USERNAME`, `AGENT_PASSWORD`).
-
-**Баунсер:**
-
-```bash
-docker exec crowdsec-lapi cscli bouncers add имя-баунсера
-```
-
-Команда вернёт API-токен. Скопируй его — он понадобится в `.env` (`API_KEY`).
-
-### Развёртывание
-
-1. Скопируй шаблон `compose.yml` и создай `.env`:
+### Шаг 2 — подготовь файлы
 
 ```bash
 cp compose-example.yml compose.yml
 cp .env.example .env
 ```
 
-2. Заполни `.env`:
+**Что поправить в `compose.yml`:**
+
+| Параметр | Что сделать |
+|---|---|
+| Пути к логам | Подставить актуальные пути для твоей системы |
+
+> Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`. Проверь и подправь.
+
+### Шаг 3 — зарегистрируй агента и баунсера на LAPI
+
+Сгенерируй пароль для агента:
+
+```bash
+openssl rand -base64 32
+```
+
+Зарегистрируй агента на работающем LAPI:
+
+```bash
+docker exec crowdsec-lapi cscli machines add имя-агента \
+  --password сгенерированный-пароль \
+  --force
+```
+
+Зарегистрируй баунсера:
+
+```bash
+docker exec crowdsec-lapi cscli bouncers add имя-баунсера
+```
+
+Команда вернёт API-токен. Скопируй его.
+
+### Шаг 4 — заполни `.env` и запусти
 
 ```dotenv
 API_URL=https://crowdsec.example.com
 TZ=Europe/Moscow
 AGENT_USERNAME=имя-агента
-AGENT_PASSWORD=пароль-агента
+AGENT_PASSWORD=сгенерированный-пароль
 API_KEY=токен-баунсера
 ```
-
-3. Запусти стек:
 
 ```bash
 docker compose up -d
@@ -233,9 +233,9 @@ docker compose up -d
 | Переменная | Описание |
 |---|---|
 | `DISABLE_LOCAL_API` | Всегда `true` — агент без встроенного LAPI |
-| `LOCAL_API_URL` | URL LAPI-сервера (например, `https://crowdsec.example.com`) |
+| `LOCAL_API_URL` | URL LAPI-сервера (берётся из `API_URL` в `.env`) |
 | `COLLECTIONS` | Коллекции (например, `crowdsecurity/linux crowdsecurity/sshd`) |
-| `TZ` | Часовой пояс |
+| `TZ` | Часовой пояс (из `.env`) |
 | `AGENT_USERNAME` | Имя агента, зарегистрированное в LAPI |
 | `AGENT_PASSWORD` | Пароль агента |
 
@@ -244,7 +244,7 @@ docker compose up -d
 | Переменная | Описание |
 |---|---|
 | `MODE` | Режим блокировки: `iptables` или `nftables` |
-| `API_URL` | URL LAPI-сервера (тот же, что у агента) |
+| `API_URL` | URL LAPI-сервера (берётся из `API_URL` в `.env`) |
 | `API_KEY` | Токен, полученный при регистрации баунсера |
 
 ### Настройка acquis.yaml
@@ -295,14 +295,17 @@ docker exec crowdsec-lapi cscli machines list
 
 ## Обновление
 
-Скрипты скачивают и обновляют файлы конфигов из репозитория.
+Скрипты скачивают свежие файлы из репозитория. После обновления скопируй шаблон (для LAPI) и перезапусти контейнеры.
 
 ```bash
 # LAPI
 cd crowdsec_lapi
 ./update.sh
+cp compose-example.yml compose.yml
+docker compose up -d
 
 # Node
 cd crowdsec_node
 ./update.sh
+docker compose up -d
 ```

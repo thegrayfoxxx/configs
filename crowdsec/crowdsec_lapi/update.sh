@@ -9,7 +9,7 @@ echo "Обновляю файлы..."
 tar xzf /tmp/crowdsec-lapi.tar.gz \
   --strip=3 \
   --wildcards \
-  '*/crowdsec/crowdsec_lapi/compose.yml' \
+  '*/crowdsec/crowdsec_lapi/compose-example.yml' \
   '*/crowdsec/crowdsec_lapi/.env.example'
 
 rm -f /tmp/crowdsec-lapi.tar.gz
