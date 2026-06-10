@@ -11,7 +11,10 @@ tar xzf /tmp/crowdsec-node.tar.gz \
   --wildcards \
   '*/crowdsec/crowdsec_node/compose-example.yml' \
   '*/crowdsec/crowdsec_node/.env.example' \
-  '*/crowdsec/crowdsec_node/config/*'
+  '*/crowdsec/crowdsec_node/config/*' \
+  '*/crowdsec/crowdsec_node/update.sh'
+
+chmod +x update.sh 2>/dev/null
 
 rm -f /tmp/crowdsec-node.tar.gz
 

@@ -10,7 +10,11 @@ tar xzf /tmp/crowdsec-lapi.tar.gz \
   --strip=3 \
   --wildcards \
   '*/crowdsec/crowdsec_lapi/compose-example.yml' \
-  '*/crowdsec/crowdsec_lapi/.env.example'
+  '*/crowdsec/crowdsec_lapi/.env.example' \
+  '*/crowdsec/crowdsec_lapi/setup-node.sh' \
+  '*/crowdsec/crowdsec_lapi/update.sh'
+
+chmod +x setup-node.sh update.sh 2>/dev/null
 
 rm -f /tmp/crowdsec-lapi.tar.gz
 
