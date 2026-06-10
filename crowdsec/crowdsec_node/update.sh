@@ -7,7 +7,7 @@ curl -sL https://github.com/thegrayfoxxx/configs/archive/main.tar.gz -o /tmp/cro
 
 echo "Обновляю файлы..."
 tar xzf /tmp/crowdsec-node.tar.gz \
-  --strip=2 \
+  --strip=3 \
   --wildcards \
   '*/crowdsec/crowdsec_node/compose-example.yml' \
   '*/crowdsec/crowdsec_node/.env.example' \
