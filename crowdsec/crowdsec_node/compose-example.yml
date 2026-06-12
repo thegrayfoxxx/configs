@@ -6,7 +6,7 @@ services:
     environment:
       - DISABLE_LOCAL_API=true
       - LOCAL_API_URL=${API_URL} # Изменить в .env
-      - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd
+      - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd crowdsecurity/iptables
       - TZ=${TZ} # Изменить в .env
       - AGENT_USERNAME=${AGENT_USERNAME} # Изменить в .env
       - AGENT_PASSWORD=${AGENT_PASSWORD} # Изменить в .env
@@ -16,6 +16,7 @@ services:
       - ./config/acquis.yaml:/etc/crowdsec/acquis.yaml
       - /var/log/auth.log:/var/log/auth.log:ro
       - /var/log/syslog:/var/log/syslog:ro
+      - /var/log/kern.log:/var/log/kern.log:ro
 
   crowdsec-bouncer:
     image: ghcr.io/shgew/cs-firewall-bouncer-docker:latest
