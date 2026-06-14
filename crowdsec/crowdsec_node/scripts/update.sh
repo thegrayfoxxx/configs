@@ -24,18 +24,14 @@ tar xzf /tmp/crowdsec-node.tar.gz \
   '*/crowdsec/crowdsec_node/compose-example.yml' \
   '*/crowdsec/crowdsec_node/.env.example' \
   '*/crowdsec/crowdsec_node/config/*' \
-  '*/crowdsec/crowdsec_node/update.sh'
+  '*/crowdsec/crowdsec_node/scripts/*'
 
-# Перемещаем скрипты в scripts/
-mkdir -p scripts
-[ -f update.sh ] && mv update.sh scripts/
-chmod +x scripts/update.sh 2>/dev/null
-
+chmod +x scripts/*.sh 2>/dev/null
 rm -f /tmp/crowdsec-node.tar.gz
 
 echo ""
 echo -e "  ${GREEN}✅ Готово${NC}"
 echo ""
-echo -e "  ${YELLOW}⚠️  Не забудь скопировать шаблон, если нужно:${NC}"
+echo -e "  ${YELLOW}⚠️  Если нужно, скопируй шаблоны:${NC}"
 echo -e "     ${CYAN}cp compose-example.yml compose.yml${NC}"
 echo -e "     ${CYAN}cp .env.example .env${NC}"

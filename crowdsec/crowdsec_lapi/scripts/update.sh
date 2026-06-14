@@ -24,17 +24,7 @@ tar xzf /tmp/crowdsec-lapi.tar.gz \
   '*/crowdsec/crowdsec_lapi/compose-example.yml' \
   '*/crowdsec/crowdsec_lapi/.env.example' \
   '*/crowdsec/crowdsec_lapi/config/*' \
-  '*/crowdsec/crowdsec_lapi/setup-node.sh' \
-  '*/crowdsec/crowdsec_lapi/update.sh' \
-  '*/crowdsec/crowdsec_lapi/traffic-guard.sh' \
-  '*/crowdsec/crowdsec_lapi/traffic-guard.cfg' \
-  '*/crowdsec/crowdsec_lapi/blocklists/*'
-
-mkdir -p scripts
-for f in setup-node.sh update.sh traffic-guard.sh traffic-guard.cfg; do
-  [ -f "$f" ] && mv "$f" scripts/
-done
-[ -d blocklists ] && mv blocklists scripts/
+  '*/crowdsec/crowdsec_lapi/scripts/*'
 
 chmod +x scripts/*.sh 2>/dev/null
 rm -f /tmp/crowdsec-lapi.tar.gz
