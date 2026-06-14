@@ -5,7 +5,7 @@ services:
     hostname: crowdsec-lapi
     restart: unless-stopped
     environment:
-      - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd
+      - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd crowdsecurity/iptables
       - TZ=${TZ} # Изменить в .env
     volumes:
       - crowdsec-data:/var/lib/crowdsec/data
@@ -13,6 +13,7 @@ services:
       - ./config/acquis.yaml:/etc/crowdsec/acquis.yaml
       - /var/log/auth.log:/var/log/auth.log:ro
       - /var/log/syslog:/var/log/syslog:ro
+      - /var/log/kern.log:/var/log/kern.log:ro
     ports:
       - 127.0.0.1:${API_LOCAL_PORT}:8080 # Можно изменить в .env
     healthcheck:
