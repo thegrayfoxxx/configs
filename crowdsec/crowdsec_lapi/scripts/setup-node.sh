@@ -33,6 +33,7 @@ else
 fi
 
 [ -z "$NODE_NAME" ] && NODE_NAME="node"
+NODE_NAME="${NODE_NAME//$'\r'/}"
 
 AGENT_NAME="$NODE_NAME-agent"
 BOUNCER_NAME="$NODE_NAME-bouncer"
