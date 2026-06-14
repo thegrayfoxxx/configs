@@ -26,6 +26,11 @@ declare -A DURATIONS=(
     ["traffic-guard-gov-networks"]="90"
 )
 
+LIST_NAMES=(
+    "traffic-guard-scanners"
+    "traffic-guard-gov-networks"
+)
+
 if [ -f "$CONFIG_FILE" ]; then
   source "$CONFIG_FILE"
 fi
@@ -60,7 +65,7 @@ show_stats() {
   echo -e "${CYAN}┌─────────────────────────────────────────────┐${NC}"
   echo -e "${CYAN}│           🛡️  TRAFFIC GUARD MANAGER         │${NC}"
   echo -e "${CYAN}├─────────────────────────────────────────────┤${NC}"
-  for name in "${!LISTS[@]}"; do
+  for name in "${LIST_NAMES[@]}"; do
     local lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${name}.txt" 2>/dev/null | wc -l)
     if check_lapi; then
       local lp=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo "?")
@@ -86,7 +91,7 @@ pick_list() {
 ${YELLOW}═══ ВЫБЕРИ СПИСОК ═══${NC}"
   local i=1
   local names=()
-  for name in "${!LISTS[@]}"; do
+  for name in "${LIST_NAMES[@]}"; do
     echo -e "  ${CYAN}$i.${NC} $name"
     names+=("$name")
     ((i++))
