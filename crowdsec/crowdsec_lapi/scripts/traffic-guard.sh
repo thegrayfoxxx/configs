@@ -321,7 +321,6 @@ ${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
           show_stats
           echo -e "
 ${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
-          PICKED=""
           local i=1
           for name in "${LIST_NAMES[@]}"; do
             echo -e "  ${CYAN}$i.${NC} $name"
@@ -344,7 +343,6 @@ ${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
         show_stats
         echo -e "
 ${YELLOW}═══ ВЫБОР СПИСКА ═══${NC}"
-        PICKED=""
         local i=1
         for name in "${LIST_NAMES[@]}"; do
           echo -e "  ${CYAN}$i.${NC} $name"
