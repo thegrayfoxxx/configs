@@ -44,20 +44,26 @@ flowchart TB
 crowdsec/
 ├── README.md
 ├── crowdsec_lapi/
-│   ├── compose-example.yml          # Docker Compose: LAPI + Dashboard + bouncer
-│   ├── .env.example         # Шаблон переменных
-│   ├── update.sh            # Скрипт обновления конфигов
-│   ├── setup-node.sh        # Скрипт для регистрации ноды на LAPI
-│   └── config/
-│       ├── acquis.yaml                          # Настройка источников логов на LAPI
-│       └── crowdsec-firewall-bouncer.yaml       # Настройки локального баунсера
+│   ├── lapi.sh                    # 🧰 Главный скрипт (меню)
+│   ├── compose-example.yml        # Docker Compose: LAPI + Dashboard + bouncer
+│   ├── .env.example               # Шаблон переменных
+│   ├── config/
+│   │   ├── acquis.yaml            # Настройка источников логов
+│   │   └── crowdsec-firewall-bouncer.yaml  # Настройки локального баунсера
+│   └── scripts/
+│       ├── update.sh              # Обновление конфигов
+│       ├── setup-node.sh          # Регистрация удалённой ноды
+│       └── traffic-guard.sh       # 🛡️ Управление блоклистами
+│
 └── crowdsec_node/
-    ├── compose-example.yml  # Шаблон Docker Compose для удалённой ноды (agent + bouncer)
-    ├── .env.example         # Шаблон переменных окружения
-    ├── update.sh            # Скрипт обновления
-    └── config/
-        ├── acquis.yaml                          # Настройка источников логов
-        └── crowdsec-firewall-bouncer.yaml       # Настройки iptables/nftables баунсера
+    ├── node.sh                    # 🖥️ Главный скрипт (меню)
+    ├── compose-example.yml        # Docker Compose: agent + bouncer
+    ├── .env.example               # Шаблон переменных
+    ├── config/
+    │   ├── acquis.yaml            # Настройка источников логов
+    │   └── crowdsec-firewall-bouncer.yaml  # Настройки iptables/nftables
+    └── scripts/
+        └── update.sh              # Обновление конфигов
 ```
 
 ## Тестовое окружение
@@ -79,7 +85,7 @@ crowdsec/
 
 LAPI слушает на `127.0.0.1:8082` и не должен быть доступен напрямую. Настрой reverse proxy (Nginx / Caddy / Traefik), который будет принимать HTTPS-запросы от удалённых нод и проксировать их на `127.0.0.1:8082`.
 
-Полученный домен (`https://crowdsec.example.com`) понадобится в `API_URL` для удалённых нод.
+Полученный домен (`https://crowdsec.example.com`) понадобится в `API_URL`.
 
 ### Шаг 1 — скачай конфиги
 
@@ -109,7 +115,7 @@ cp .env.example .env
 |---|---|
 | `TZ` | Часовой пояс, например `Europe/Moscow` |
 | `API_LOCAL_PORT` | Порт для LAPI на хосте (по умолчанию `8082`) |
-| `API_URL` | Внешний домен LAPI (для удалённых нод и скрипта `setup-node.sh`) |
+| `API_URL` | Внешний домен LAPI (для удалённых нод) |
 
 ### Шаг 3 — запусти LAPI
 
@@ -118,8 +124,6 @@ docker compose up -d
 ```
 
 ### Шаг 4 — зарегистрируй локальный баунсер
-
-Создай API-ключ для локального баунсера на работающем LAPI:
 
 ```bash
 docker exec crowdsec-lapi cscli bouncers add local-bouncer
@@ -131,7 +135,7 @@ docker exec crowdsec-lapi cscli bouncers add local-bouncer
 API_KEY_FOR_LOCAL_BOUNCER=полученный-ключ
 ```
 
-Перезапусти стек, чтобы баунсер применил ключ:
+Перезапусти стек:
 
 ```bash
 docker compose up -d
@@ -139,28 +143,40 @@ docker compose up -d
 
 ### Шаг 5 — подключи Dashboard
 
-Зарегистрируй машину на работающем LAPI:
-
 ```bash
 docker exec crowdsec-lapi cscli machines add dashboard \
   --password пароль-для-панели \
   --force
 ```
 
-Обнови `.env` — укажи имя и пароль машины:
+Обнови `.env`:
 
 ```dotenv
 CROWDSEC_USER=dashboard
 CROWDSEC_PASSWORD=пароль-для-панели
 ```
 
-Перезапусти стек, чтобы Dashboard применил credentials:
+Перезапусти стек:
 
 ```bash
 docker compose up -d
 ```
 
-> **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy (IP-белый список, базовая аутентификация или VPN).
+> **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy.
+
+### Управление LAPI
+
+Для повседневных задач используй `lapi.sh`:
+
+```bash
+cd crowdsec_lapi
+./lapi.sh
+```
+
+Меню:
+- **1** — обновить конфиги из репозитория
+- **2** — зарегистрировать удалённую ноду
+- **3** — Traffic Guard (управление блоклистами)
 
 ### Команды управления LAPI
 
@@ -242,14 +258,22 @@ docker exec crowdsec-lapi cscli bouncers delete имя-баунсера
 
 Есть два способа настройки ноды:
 
-**Вариант 1 — через скрипт (быстро).** Зарегистрируй ноду на LAPI одной командой, скрипт сам всё сделает и выведет готовую команду для ноды:
+**Вариант 1 — через скрипт (быстро).** Зарегистрируй ноду на LAPI одной командой:
 
 ```bash
 cd crowdsec_lapi
+./lapi.sh
+# выбери пункт 2
+```
+
+Или напрямую:
+
+```bash
+cd crowdsec_lapi/scripts
 ./setup-node.sh имя-ноды
 ```
 
-Скрипт создаст `имя-ноды-agent` и `имя-ноды-bouncer`, сгенерирует пароль, получит API-токен и выведет команду для выполнения на ноде.
+Скрипт создаст `имя-ноды-agent` и `имя-ноды-bouncer`, сгенерирует пароль, получит API-токен и выведет готовую команду для ноды.
 
 **Вариант 2 — вручную (пошагово).** Выполни шаги 1–4 ниже.
 
@@ -277,21 +301,15 @@ cp .env.example .env
 
 ### Шаг 3 — зарегистрируй ноду на LAPI (вручную)
 
-Сгенерируй пароль для агента:
-
 ```bash
 openssl rand -base64 32
 ```
-
-Зарегистрируй агента на работающем LAPI:
 
 ```bash
 docker exec crowdsec-lapi cscli machines add имя-агента \
   --password сгенерированный-пароль \
   --force
 ```
-
-Зарегистрируй баунсера:
 
 ```bash
 docker exec crowdsec-lapi cscli bouncers add имя-баунсера
@@ -312,6 +330,20 @@ API_KEY=токен-баунсера
 ```bash
 docker compose up -d
 ```
+
+### Управление нодой
+
+Для повседневных задач используй `node.sh`:
+
+```bash
+cd crowdsec_node
+./node.sh
+```
+
+Меню:
+- **1** — обновить конфиги из репозитория
+- **2** — статус (контейнеры + количество блокировок)
+- **3** — перезапустить контейнеры
 
 ### Переменные окружения
 
@@ -408,15 +440,33 @@ docker exec crowdsec-lapi cscli decisions delete --ip 1.2.3.4
 
 Скрипты скачивают свежие файлы из репозитория. После обновления скопируй шаблон (для LAPI) и перезапусти контейнеры.
 
+Через главные скрипты:
+
 ```bash
 # LAPI
 cd crowdsec_lapi
+./lapi.sh
+# выбери пункт 1
+
+# Node
+cd crowdsec_node
+./node.sh
+# выбери пункт 1
+```
+
+Или напрямую:
+
+```bash
+# LAPI
+cd crowdsec_lapi/scripts
 ./update.sh
+cd ..
 cp compose-example.yml compose.yml
 docker compose up -d
 
 # Node
-cd crowdsec_node
+cd crowdsec_node/scripts
 ./update.sh
+cd ..
 docker compose up -d
 ```
