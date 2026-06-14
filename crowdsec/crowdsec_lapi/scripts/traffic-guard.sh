@@ -10,6 +10,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 CSCLI="docker exec crowdsec-lapi cscli"
+CSCLI_I="docker exec -i crowdsec-lapi cscli"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/traffic-guard.cfg"
 BLOCKLISTS_DIR="${SCRIPT_DIR}/blocklists"
@@ -128,7 +129,7 @@ apply_all() {
 
     local valid=$(grep -vE '^\s*#|^\s*$' "$LOCAL_FILE")
     if [ -n "$valid" ]; then
-      echo "$valid" | $CSCLI decisions import -i - --format values \
+      echo "$valid" | $CSCLI_I decisions import -i - --format values \
         --duration "${DUR}d" --type ban --reason "$name" > /dev/null 2>&1
 
       local added=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo 0)
