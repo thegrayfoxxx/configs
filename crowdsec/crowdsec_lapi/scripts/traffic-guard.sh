@@ -356,6 +356,8 @@ ${YELLOW}═══ ВЫБОР СПИСКА ═══${NC}"
         read -r n < /dev/tty
         local idx=$((n - 1))
         if [ "$n" != "0" ] && [ "$idx" -ge 0 ] && [ "$idx" -lt "${#LIST_NAMES[@]}" ]; then
+          echo -e "  DEBUG: выбрано n=$n idx=$idx name=${LIST_NAMES[$idx]}"
+          read -p ""
           edit_duration_menu "${LIST_NAMES[$idx]}"
         fi
         continue
