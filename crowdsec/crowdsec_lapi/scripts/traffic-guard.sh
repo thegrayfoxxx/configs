@@ -110,7 +110,7 @@ ${YELLOW}═══ ВЫБЕРИ СПИСОК ═══${NC}"
 
 # --- СКАЧАТЬ ЛОКАЛЬНО ---
 download_all() {
-  for name in "${!LISTS[@]}"; do
+  for name in "${LIST_NAMES[@]}"; do
     local LOCAL_FILE="${BLOCKLISTS_DIR}/${name}.txt"
     echo -e "  📥 ${CYAN}$name${NC}"
     curl -fsSL -o "$LOCAL_FILE" "${LISTS[$name]}"
@@ -126,7 +126,7 @@ download_all() {
 # --- УСТАНОВИТЬ В LAPI ---
 apply_all() {
   lapi_available || return 1
-  for name in "${!LISTS[@]}"; do
+  for name in "${LIST_NAMES[@]}"; do
     local LOCAL_FILE="${BLOCKLISTS_DIR}/${name}.txt"
     if [ ! -f "$LOCAL_FILE" ]; then
       echo -e "  ${YELLOW}⚠️${NC} ${CYAN}$name${NC}: нет локального файла"
@@ -164,7 +164,7 @@ remove_list() {
 
 remove_all() {
   lapi_available || return 1
-  for name in "${!LISTS[@]}"; do
+  for name in "${LIST_NAMES[@]}"; do
     remove_list "$name"
   done
 }
@@ -388,9 +388,9 @@ case "${1:-}" in
   download) download_all ;;
   apply) lapi_available && apply_all ;;
   install) download_all; echo ""; lapi_available && apply_all ;;
-  remove) lapi_available && for name in "${!LISTS[@]}"; do $CSCLI decisions delete --scenario "$name" > /dev/null 2>&1; done ;;
+  remove) lapi_available && for name in "${LIST_NAMES[@]}"; do $CSCLI decisions delete --scenario "$name" > /dev/null 2>&1; done ;;
   status)
-    for name in "${!LISTS[@]}"; do
+    for name in "${LIST_NAMES[@]}"; do
       lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${name}.txt" 2>/dev/null | wc -l)
       if check_lapi; then
         lp=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo "?")
