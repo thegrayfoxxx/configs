@@ -58,10 +58,6 @@ lapi_available() {
 
 # --- СТАТУС-БАР (шапка меню) ---
 show_stats() {
-  # Перезагружаем конфиг, чтобы актуальные сроки
-  if [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
-  fi
   echo -e "${CYAN}┌─────────────────────────────────────────────┐${NC}"
   echo -e "${CYAN}│           🛡️  TRAFFIC GUARD MANAGER         │${NC}"
   echo -e "${CYAN}├─────────────────────────────────────────────┤${NC}"
