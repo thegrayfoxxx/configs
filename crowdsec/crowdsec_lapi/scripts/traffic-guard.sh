@@ -60,21 +60,21 @@ show_stats() {
   echo -e "${CYAN}┌─────────────────────────────────────────────┐${NC}"
   echo -e "${CYAN}│           🛡️  TRAFFIC GUARD MANAGER         │${NC}"
   echo -e "${CYAN}├─────────────────────────────────────────────┤${NC}"
-  for name in "${LIST_NAMES[@]}"; do
-    local lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${name}.txt" 2>/dev/null | wc -l)
+  for sname in "${LIST_NAMES[@]}"; do
+    local lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${sname}.txt" 2>/dev/null | wc -l)
     if check_lapi; then
-      local lp=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo "?")
+      local lp=$($CSCLI decisions list --scenario "$sname" -o count 2>/dev/null || echo "?")
     else
       local lp="❌"
     fi
-    echo -e "${CYAN}│${NC}  ${CYAN}$name${NC}"
+    echo -e "${CYAN}│${NC}  ${CYAN}$sname${NC}"
     printf "${CYAN}│${NC}    📥 Локально: ${GREEN}%s${NC} IP\n" "$lc"
     if [ "$lp" = "❌" ]; then
       echo -e "${CYAN}│${NC}    ☁️  В LAPI:   ${RED}$lp${NC}"
     else
       printf "${CYAN}│${NC}    ☁️  В LAPI:   ${GREEN}%s${NC}\n" "$lp"
     fi
-    echo -e "${CYAN}│${NC}    ⏱  Срок:     ${DURATIONS[$name]}д"
+    echo -e "${CYAN}│${NC}    ⏱  Срок:     ${DURATIONS[$sname]}д"
   done
   echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
 }
@@ -356,8 +356,6 @@ ${YELLOW}═══ ВЫБОР СПИСКА ═══${NC}"
         read -r n < /dev/tty
         local idx=$((n - 1))
         if [ "$n" != "0" ] && [ "$idx" -ge 0 ] && [ "$idx" -lt "${#LIST_NAMES[@]}" ]; then
-          echo -e "  DEBUG: выбрано n=$n idx=$idx name=${LIST_NAMES[$idx]}"
-          read -p ""
           edit_duration_menu "${LIST_NAMES[$idx]}"
         fi
         continue
