@@ -204,6 +204,83 @@ ${YELLOW}═══ СРОК БАНА ═══${NC}"
   done
 }
 
+# --- НАСТРОЙКА CRON ---
+setup_cron() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo ""
+    echo -e "${YELLOW}═══ НАСТРОЙКА CRON ═══${NC}"
+    echo ""
+    echo -e "  ${RED}❌ Cron нужно настраивать от root${NC}"
+    echo ""
+    echo -e "  Скрипту нужен доступ к ${CYAN}docker${NC} и ${CYAN}ipset${NC}."
+    echo -e "  Запусти от root и настрой заново:"
+    echo ""
+    echo -e "     ${CYAN}sudo bash traffic-guard.sh${NC}"
+    echo -e "     → выбери пункт 6${NC}"
+    echo ""
+    echo -e "  Или добавь в crontab root вручную:"
+    echo -e "     ${CYAN}sudo crontab -e${NC}"
+    echo -e "     Добавь: ${CYAN}0 3 * * * cd ${SCRIPT_DIR} && bash traffic-guard.sh install${NC}"
+    echo ""
+    read -p "[Enter] назад..." < /dev/tty
+    return
+  fi
+  local TG_CMD
+  TG_CMD="cd ${SCRIPT_DIR} && bash traffic-guard.sh install"
+  local HAS_CRON=$(crontab -l 2>/dev/null | grep -F "$TG_CMD")
+
+  echo ""
+  echo -e "${YELLOW}═══ НАСТРОЙКА CRON ═══${NC}"
+  echo ""
+
+  if [ -n "$HAS_CRON" ]; then
+    echo -e "  ${GREEN}✅ Задача уже установлена:${NC}"
+    crontab -l | grep -F "$TG_CMD"
+    echo ""
+    echo -e "  ${YELLOW}👉 Для удаления: ${CYAN}crontab -e${NC}"
+    echo ""
+    read -p "[Enter] назад..." < /dev/tty
+    return
+  fi
+
+  echo -e "  Выбери интервал обновления блоклистов: "
+  echo ""
+  echo -e "  ${CYAN}1.${NC} Каждый час"
+  echo -e "  ${CYAN}2.${NC} Каждые 6 часов"
+  echo -e "  ${CYAN}3.${NC} Каждые 12 часов"
+  echo -e "  ${CYAN}4.${NC} Раз в день (в 3:00)"
+  echo -e "  ${CYAN}5.${NC} Свой вариант"
+  echo -e "  ${RED}0.${NC} Отмена"
+  echo ""
+  echo -ne "${CYAN}👉 Интервал:${NC} "
+  read -r interval < /dev/tty
+
+  local CRON_TIME=""
+  case "$interval" in
+    1) CRON_TIME="0 * * * *" ;;
+    2) CRON_TIME="0 */6 * * *" ;;
+    3) CRON_TIME="0 */12 * * *" ;;
+    4) CRON_TIME="0 3 * * *" ;;
+    5)
+      echo ""
+      echo -e "  Формат: ${CYAN}минута час день месяц день_недели${NC}"
+      echo -e "  Пример: ${CYAN}0 */4 * * *${NC} — каждые 4 часа"
+      echo ""
+      echo -ne "${CYAN}👉 Введи cron-выражение:${NC} "
+      read -r CRON_TIME < /dev/tty
+      [ -z "$CRON_TIME" ] && return
+      ;;
+    0 | *) return ;;
+  esac
+
+  (crontab -l 2>/dev/null; echo "$CRON_TIME $TG_CMD") | crontab -
+  echo ""
+  echo -e "  ${GREEN}✅ Задача установлена!${NC}"
+  echo -e "     ${CYAN}$CRON_TIME $TG_CMD${NC}"
+  echo ""
+  read -p "[Enter] назад..." < /dev/tty
+}
+
 # --- ГЛАВНОЕ МЕНЮ ---
 show_menu() {
   trap 'exit 0' INT
@@ -216,6 +293,7 @@ show_menu() {
     echo -e "  ${GREEN}3.${NC} 🔄 Полное обновление (скачать + LAPI)"
     echo -e "  ${GREEN}4.${NC} 🗑️  Удалить списки из LAPI"
     echo -e "  ${GREEN}5.${NC} ⏱  Настроить срок бана"
+    echo -e "  ${GREEN}6.${NC} ⏰  Автообновление (cron)"
     echo -e "  ${RED}0.${NC} ❌ Выход"
     echo ""
     echo -ne "${CYAN}👉 Пункт:${NC} "
@@ -283,6 +361,11 @@ ${YELLOW}═══ ВЫБОР СПИСКА ═══${NC}"
           edit_duration_menu "$PICKED"
         fi
         continue
+        ;;
+      6)
+        tput clear
+        show_stats
+        setup_cron
         ;;
       0) exit 0 ;;
       *) echo -e "${RED}❌ Неверный пункт${NC}"; sleep 1; continue ;;
