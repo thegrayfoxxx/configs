@@ -63,7 +63,7 @@ show_stats() {
   for sname in "${LIST_NAMES[@]}"; do
     local lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${sname}.txt" 2>/dev/null | wc -l)
     if check_lapi; then
-      local lp=$($CSCLI decisions list --scenario "$sname" -o count 2>/dev/null || echo "?")
+      local lp=$($CSCLI decisions list --scenario "$sname" -o raw 2>/dev/null | wc -l)
     else
       local lp="❌"
     fi
@@ -112,7 +112,7 @@ apply_all() {
       echo "$valid" | $CSCLI_I decisions import -i - --format values \
         --duration "${DUR}d" --type ban --reason "$name" > /dev/null 2>&1
 
-      local added=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo 0)
+      local added=$($CSCLI decisions list --scenario "$name" -o raw 2>/dev/null | wc -l)
       if [ "$added" -gt 0 ]; then
         echo -e "    ${GREEN}✅${NC} $added IP в LAPI"
       else
@@ -384,7 +384,7 @@ case "${1:-}" in
     for name in "${LIST_NAMES[@]}"; do
       lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${name}.txt" 2>/dev/null | wc -l)
       if check_lapi; then
-        lp=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo "?")
+        lp=$($CSCLI decisions list --scenario "$name" -o raw 2>/dev/null | wc -l)
       else
         lp="LAPI недоступен"
       fi
