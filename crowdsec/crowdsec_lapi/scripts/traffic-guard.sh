@@ -1,0 +1,314 @@
+#!/bin/bash
+set -u
+
+# --- ЦВЕТА ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+CSCLI="docker exec crowdsec-lapi cscli"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${SCRIPT_DIR}/traffic-guard.cfg"
+BLOCKLISTS_DIR="${SCRIPT_DIR}/blocklists"
+mkdir -p "$BLOCKLISTS_DIR"
+
+declare -A LISTS=(
+    ["traffic-guard-scanners"]="https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/antiscanner.list"
+    ["traffic-guard-gov-networks"]="https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/government_networks.list"
+)
+
+declare -A DURATIONS=(
+    ["traffic-guard-scanners"]="30"
+    ["traffic-guard-gov-networks"]="90"
+)
+
+PARALLEL_JOBS=4
+
+if [ -f "$CONFIG_FILE" ]; then
+  source "$CONFIG_FILE"
+fi
+
+save_config() {
+  cat > "$CONFIG_FILE" <<EOF
+# Длительность бана в днях для каждого списка
+EOF
+  for name in "${!DURATIONS[@]}"; do
+    echo "DURATIONS[\"$name\"]=\"${DURATIONS[$name]}\"" >> "$CONFIG_FILE"
+  done
+}
+
+# --- ПРОВЕРКА LAPI ---
+check_lapi() {
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'crowdsec-lapi'
+}
+
+lapi_available() {
+  if ! check_lapi; then
+    echo -e "\n${RED}❌ Контейнер crowdsec-lapi не запущен${NC}"
+    return 1
+  fi
+}
+
+# --- СТАТУС-БАР (шапка меню) ---
+show_stats() {
+  echo -e "${CYAN}┌─────────────────────────────────────────────┐${NC}"
+  echo -e "${CYAN}│           🛡️  TRAFFIC GUARD MANAGER         │${NC}"
+  echo -e "${CYAN}├─────────────────────────────────────────────┤${NC}"
+  for name in "${!LISTS[@]}"; do
+    local lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${name}.txt" 2>/dev/null | wc -l)
+    if check_lapi; then
+      local lp=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo "?")
+    else
+      local lp="❌"
+    fi
+    echo -e "${CYAN}│${NC}  ${CYAN}$name${NC}"
+    printf "${CYAN}│${NC}    📥 Локально: ${GREEN}%s${NC} IP\n" "$lc"
+    if [ "$lp" = "❌" ]; then
+      echo -e "${CYAN}│${NC}    ☁️  В LAPI:   ${RED}$lp${NC}"
+    else
+      printf "${CYAN}│${NC}    ☁️  В LAPI:   ${GREEN}%s${NC}\n" "$lp"
+    fi
+    echo -e "${CYAN}│${NC}    ⏱  Срок:     ${DURATIONS[$name]}д"
+  done
+  echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
+}
+
+# --- ВЫБОР СПИСКА (без subshell, результат в переменной PICKED) ---
+pick_list() {
+  PICKED=""
+  echo -e "
+${YELLOW}═══ ВЫБЕРИ СПИСОК ═══${NC}"
+  local i=1
+  local names=()
+  for name in "${!LISTS[@]}"; do
+    echo -e "  ${CYAN}$i.${NC} $name"
+    names+=("$name")
+    ((i++))
+  done
+  echo -e "  ${RED}0.${NC} Назад"
+  echo ""
+  echo -ne "${CYAN}👉 Номер:${NC} "
+  read -r n < /dev/tty
+  local idx=$((n - 1))
+  if [ "$n" = "0" ]; then
+    return
+  elif [ "$idx" -ge 0 ] && [ "$idx" -lt "${#names[@]}" ]; then
+    PICKED="${names[$idx]}"
+  fi
+}
+
+# --- СКАЧАТЬ ЛОКАЛЬНО ---
+download_all() {
+  for name in "${!LISTS[@]}"; do
+    local LOCAL_FILE="${BLOCKLISTS_DIR}/${name}.txt"
+    echo -e "  📥 ${CYAN}$name${NC}"
+    curl -fsSL -o "$LOCAL_FILE" "${LISTS[$name]}"
+    if [ $? -ne 0 ]; then
+      echo -e "    ${RED}❌ Ошибка скачивания${NC}"
+      continue
+    fi
+    local c=$(grep -vE '^\s*#|^\s*$' "$LOCAL_FILE" | wc -l)
+    echo -e "    ${GREEN}✅${NC} $c IP"
+  done
+}
+
+# --- УСТАНОВИТЬ В LAPI ---
+apply_all() {
+  lapi_available || return 1
+  for name in "${!LISTS[@]}"; do
+    local LOCAL_FILE="${BLOCKLISTS_DIR}/${name}.txt"
+    if [ ! -f "$LOCAL_FILE" ]; then
+      echo -e "  ${YELLOW}⚠️${NC} ${CYAN}$name${NC}: нет локального файла"
+      continue
+    fi
+    local DUR="${DURATIONS[$name]}"
+    echo -e "  ☁️  ${CYAN}$name${NC} (${DUR}д)"
+    $CSCLI decisions delete --scenario "$name" > /dev/null 2>&1
+
+    local valid=$(grep -vE '^\s*#|^\s*$' "$LOCAL_FILE")
+    if [ -n "$valid" ]; then
+      echo "$valid" | xargs -n 1 -P "$PARALLEL_JOBS" -I {} \
+        $CSCLI decisions add --ip {} --duration "${DUR}d" --type "ban" \
+          --scenario "$name" --reason "TrafficGuard: $name" > /dev/null 2>&1
+
+      local added=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo 0)
+      if [ "$added" -gt 0 ]; then
+        echo -e "    ${GREEN}✅${NC} $added IP в LAPI"
+      else
+        echo -e "    ${RED}❌${NC} Ошибка добавления"
+      fi
+    fi
+  done
+  save_config
+}
+
+# --- УДАЛИТЬ ИЗ LAPI ---
+remove_list() {
+  local name="$1"
+  if $CSCLI decisions delete --scenario "$name" > /dev/null 2>&1; then
+    echo -e "  🗑️  ${GREEN}✅${NC} ${CYAN}$name${NC}: удалено"
+  else
+    echo -e "  🗑️  ${RED}❌${NC} ${CYAN}$name${NC}: ошибка удаления"
+  fi
+}
+
+remove_all() {
+  lapi_available || return 1
+  for name in "${!LISTS[@]}"; do
+    remove_list "$name"
+  done
+}
+
+# --- ПОДМЕНЮ: НАСТРОЙКА СРОКА ---
+edit_duration_menu() {
+  local name="$1"
+  while true; do
+    tput clear
+    show_stats
+    echo -e "
+${YELLOW}═══ СРОК БАНА ═══${NC}"
+    echo -e "  Список: ${CYAN}$name${NC}"
+    echo -e "  Текущий срок: ${GREEN}${DURATIONS[$name]}${NC} дней"
+    echo ""
+    echo -e "  ${CYAN}1.${NC} ${DURATIONS[$name]}д (оставить)"
+    echo -e "  ${CYAN}2.${NC} 7д"
+    echo -e "  ${CYAN}3.${NC} 30д"
+    echo -e "  ${CYAN}4.${NC} 90д"
+    echo -e "  ${CYAN}5.${NC} 365д"
+    echo -e "  ${CYAN}6.${NC} Свой вариант"
+    echo -e "  ${RED}0.${NC} Назад"
+    echo ""
+    echo -ne "${CYAN}👉 Срок:${NC} "
+    read -r d < /dev/tty
+
+    case "$d" in
+      1) return ;;
+      2) DURATIONS["$name"]="7" ;;
+      3) DURATIONS["$name"]="30" ;;
+      4) DURATIONS["$name"]="90" ;;
+      5) DURATIONS["$name"]="365" ;;
+      6)
+        read -p "  Срок в днях: " custom < /dev/tty
+        [[ "$custom" =~ ^[0-9]+$ ]] && DURATIONS["$name"]="$custom" || continue
+        ;;
+      0) return ;;
+      *) continue ;;
+    esac
+    save_config
+    echo -e "\n${GREEN}✅${NC} Обновлено: ${DURATIONS[$name]}д"
+    read -p "[Enter]..." < /dev/tty
+    return
+  done
+}
+
+# --- ГЛАВНОЕ МЕНЮ ---
+show_menu() {
+  trap 'exit 0' INT
+  while true; do
+    tput clear
+    show_stats
+    echo ""
+    echo -e "  ${GREEN}1.${NC} 📥 Только скачать (локально)"
+    echo -e "  ${GREEN}2.${NC} ☁️  Установить в LAPI (из файлов)"
+    echo -e "  ${GREEN}3.${NC} 🔄 Полное обновление (скачать + LAPI)"
+    echo -e "  ${GREEN}4.${NC} 🗑️  Удалить списки из LAPI"
+    echo -e "  ${GREEN}5.${NC} ⏱  Настроить срок бана"
+    echo -e "  ${RED}0.${NC} ❌ Выход"
+    echo ""
+    echo -ne "${CYAN}👉 Пункт:${NC} "
+    read -r choice < /dev/tty
+
+    case "$choice" in
+      1)
+        tput clear
+        show_stats
+        echo -e "
+${YELLOW}═══ СКАЧИВАНИЕ ═══${NC}"
+        download_all
+        ;;
+      2)
+        tput clear
+        show_stats
+        echo -e "
+${YELLOW}═══ УСТАНОВКА В LAPI ═══${NC}"
+        apply_all
+        ;;
+      3)
+        tput clear
+        show_stats
+        echo -e "
+${YELLOW}═══ ПОЛНОЕ ОБНОВЛЕНИЕ ═══${NC}"
+        download_all
+        echo ""
+        apply_all
+        ;;
+      4)
+        echo -e "
+${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
+        echo -e "  ${CYAN}1.${NC} Удалить всё"
+        echo -e "  ${CYAN}2.${NC} Выбрать список"
+        echo -e "  ${RED}0.${NC} Назад"
+        echo ""
+        echo -ne "${CYAN}👉 Действие:${NC} "
+        read -r sub < /dev/tty
+        if [ "$sub" = "1" ]; then
+          tput clear
+          show_stats
+          echo -e "
+${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
+          remove_all
+        elif [ "$sub" = "2" ]; then
+          tput clear
+          show_stats
+          echo -e "
+${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
+          pick_list
+          if [ -n "$PICKED" ]; then
+            lapi_available && remove_list "$PICKED"
+          fi
+        else
+          continue
+        fi
+        ;;
+      5)
+        tput clear
+        show_stats
+        echo -e "
+${YELLOW}═══ ВЫБОР СПИСКА ═══${NC}"
+        pick_list
+        if [ -n "$PICKED" ]; then
+          edit_duration_menu "$PICKED"
+        fi
+        continue
+        ;;
+      0) exit 0 ;;
+      *) echo -e "${RED}❌ Неверный пункт${NC}"; sleep 1; continue ;;
+    esac
+
+    echo ""
+    read -p "[Enter] в меню..." < /dev/tty
+  done
+}
+
+# --- АРГУМЕНТЫ КОМАНДНОЙ СТРОКИ ---
+case "${1:-}" in
+  download) download_all ;;
+  apply) lapi_available && apply_all ;;
+  install) download_all; echo ""; lapi_available && apply_all ;;
+  remove) lapi_available && for name in "${!LISTS[@]}"; do $CSCLI decisions delete --scenario "$name" > /dev/null 2>&1; done ;;
+  status)
+    for name in "${!LISTS[@]}"; do
+      lc=$(grep -vE '^\s*#|^\s*$' "${BLOCKLISTS_DIR}/${name}.txt" 2>/dev/null | wc -l)
+      if check_lapi; then
+        lp=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo "?")
+      else
+        lp="LAPI недоступен"
+      fi
+      echo "$name: локально $lc, в LAPI $lp"
+    done
+    ;;
+  *) show_menu ;;
+esac
