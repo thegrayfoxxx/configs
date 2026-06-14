@@ -25,8 +25,6 @@ declare -A DURATIONS=(
     ["traffic-guard-gov-networks"]="90"
 )
 
-PARALLEL_JOBS=4
-
 if [ -f "$CONFIG_FILE" ]; then
   source "$CONFIG_FILE"
 fi
@@ -130,9 +128,8 @@ apply_all() {
 
     local valid=$(grep -vE '^\s*#|^\s*$' "$LOCAL_FILE")
     if [ -n "$valid" ]; then
-      echo "$valid" | xargs -n 1 -P "$PARALLEL_JOBS" -I {} \
-        $CSCLI decisions add --ip {} --duration "${DUR}d" --type "ban" \
-          --scenario "$name" --reason "TrafficGuard: $name" > /dev/null 2>&1
+      echo "$valid" | $CSCLI decisions import -i - --format values \
+        --duration "${DUR}d" --type ban --reason "$name" > /dev/null 2>&1
 
       local added=$($CSCLI decisions list --scenario "$name" -o count 2>/dev/null || echo 0)
       if [ "$added" -gt 0 ]; then
