@@ -5,7 +5,6 @@ set -u
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
@@ -78,30 +77,6 @@ show_stats() {
     echo -e "${CYAN}│${NC}    ⏱  Срок:     ${DURATIONS[$name]}д"
   done
   echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
-}
-
-# --- ВЫБОР СПИСКА (без subshell, результат в переменной PICKED) ---
-pick_list() {
-  PICKED=""
-  echo -e "
-${YELLOW}═══ ВЫБЕРИ СПИСОК ═══${NC}"
-  local i=1
-  local names=()
-  for name in "${LIST_NAMES[@]}"; do
-    echo -e "  ${CYAN}$i.${NC} $name"
-    names+=("$name")
-    ((i++))
-  done
-  echo -e "  ${RED}0.${NC} Назад"
-  echo ""
-  echo -ne "${CYAN}👉 Номер:${NC} "
-  read -r n < /dev/tty
-  local idx=$((n - 1))
-  if [ "$n" = "0" ]; then
-    return
-  elif [ "$idx" -ge 0 ] && [ "$idx" -lt "${#names[@]}" ]; then
-    PICKED="${names[$idx]}"
-  fi
 }
 
 # --- СКАЧАТЬ ЛОКАЛЬНО ---
@@ -346,9 +321,19 @@ ${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
           show_stats
           echo -e "
 ${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
-          pick_list
-          if [ -n "$PICKED" ]; then
-            lapi_available && remove_list "$PICKED"
+          PICKED=""
+          local i=1
+          for name in "${LIST_NAMES[@]}"; do
+            echo -e "  ${CYAN}$i.${NC} $name"
+            ((i++))
+          done
+          echo -e "  ${RED}0.${NC} Назад"
+          echo ""
+          echo -ne "${CYAN}👉 Номер:${NC} "
+          read -r n < /dev/tty
+          local idx=$((n - 1))
+          if [ "$n" != "0" ] && [ "$idx" -ge 0 ] && [ "$idx" -lt "${#LIST_NAMES[@]}" ]; then
+            lapi_available && remove_list "${LIST_NAMES[$idx]}"
           fi
         else
           continue
@@ -359,9 +344,19 @@ ${YELLOW}═══ УДАЛЕНИЕ ═══${NC}"
         show_stats
         echo -e "
 ${YELLOW}═══ ВЫБОР СПИСКА ═══${NC}"
-        pick_list
-        if [ -n "$PICKED" ]; then
-          edit_duration_menu "$PICKED"
+        PICKED=""
+        local i=1
+        for name in "${LIST_NAMES[@]}"; do
+          echo -e "  ${CYAN}$i.${NC} $name"
+          ((i++))
+        done
+        echo -e "  ${RED}0.${NC} Назад"
+        echo ""
+        echo -ne "${CYAN}👉 Номер:${NC} "
+        read -r n < /dev/tty
+        local idx=$((n - 1))
+        if [ "$n" != "0" ] && [ "$idx" -ge 0 ] && [ "$idx" -lt "${#LIST_NAMES[@]}" ]; then
+          edit_duration_menu "${LIST_NAMES[$idx]}"
         fi
         continue
         ;;
@@ -374,8 +369,10 @@ ${YELLOW}═══ ВЫБОР СПИСКА ═══${NC}"
       *) echo -e "${RED}❌ Неверный пункт${NC}"; sleep 1; continue ;;
     esac
 
-    echo ""
-    read -p "[Enter] в меню..." < /dev/tty
+    if [ "$choice" != "3" ] && [ "$choice" != "5" ]; then
+      echo ""
+      read -p "[Enter] в меню..." < /dev/tty
+    fi
   done
 }
 
