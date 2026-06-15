@@ -62,7 +62,7 @@ show_menu() {
     case "$choice" in
       1)
         if [ -f "${SCRIPTS_DIR}/update.sh" ]; then
-          bash "${SCRIPTS_DIR}/update.sh"
+          bash "${SCRIPTS_DIR}/update.sh" < /dev/tty
         else
           clear_screen
           log_error "❌ update.sh не найден"
