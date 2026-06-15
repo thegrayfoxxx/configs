@@ -30,13 +30,17 @@ update_from_repo() {
     '*/crowdsec/crowdsec_node/compose-example.yml' \
     '*/crowdsec/crowdsec_node/.env.example' \
     '*/crowdsec/crowdsec_node/config/*' \
-    '*/crowdsec/crowdsec_node/scripts/*' \
-    '*/crowdsec/crowdsec_node/scripts/lib/*'; then
+    '*/crowdsec/crowdsec_node/scripts/*'; then
     printf "\n"
     rm -f "$TMP_ARCHIVE"
     rm -rf "$TEMP_DIR"
     die "❌ Ошибка распаковки архива."
   fi
+  # scripts/lib/ может отсутствовать в старых архивах — не фатально
+  tar xzf "$TMP_ARCHIVE" -C "$TEMP_DIR" \
+    --strip=3 \
+    --wildcards \
+    '*/crowdsec/crowdsec_node/scripts/lib/*' 2>/dev/null || true
 
   printf "  ${CYAN}📋 Обновляю файлы...${NC}\n"
   cp -n "$TEMP_DIR"/compose-example.yml . 2>/dev/null || true

@@ -32,13 +32,17 @@ update_from_repo() {
     '*/crowdsec/crowdsec_lapi/compose-example.yml' \
     '*/crowdsec/crowdsec_lapi/.env.example' \
     '*/crowdsec/crowdsec_lapi/config/*' \
-    '*/crowdsec/crowdsec_lapi/scripts/*' \
-    '*/crowdsec/crowdsec_lapi/scripts/lib/*'; then
+    '*/crowdsec/crowdsec_lapi/scripts/*'; then
     printf "\n"
     rm -f "$TMP_ARCHIVE"
     rm -rf "$TEMP_DIR"
     die "❌ Ошибка распаковки архива."
   fi
+  # scripts/lib/ может отсутствовать в старых архивах — не фатально
+  tar xzf "$TMP_ARCHIVE" -C "$TEMP_DIR" \
+    --strip=3 \
+    --wildcards \
+    '*/crowdsec/crowdsec_lapi/scripts/lib/*' 2>/dev/null || true
 
   # Копируем (не перезаписывая существующие файлы)
   printf "  ${CYAN}📋 Обновляю файлы...${NC}\n"
