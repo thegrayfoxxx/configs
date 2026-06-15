@@ -79,7 +79,7 @@ show_menu() {
         printf "\n"
         printf "  ${CYAN}🐳 Перезапускаю контейнеры...${NC}\n"
         if [ -f "${SCRIPT_DIR}/compose.yml" ]; then
-          cd "${SCRIPT_DIR}" || { log_error "❌ Ошибка перехода в директорию"; break; }
+          cd "${SCRIPT_DIR}" || { log_error "❌ Ошибка перехода в директорию"; return; }
           if docker compose restart; then
             printf "\n"
             log_info "  ✅ Контейнеры перезапущены"
