@@ -41,13 +41,13 @@ register_agent() {
 register_bouncer() {
   local name="$1"
 
-  printf "  ${CYAN}📝 Регистрирую баунсера '%s'...${NC}\n" "$name"
+  printf "  ${CYAN}📝 Регистрирую баунсера '%s'...${NC}\n" "$name" >&2
   local api_key
   api_key=$($CSCLI bouncers add "$name" -o raw 2>/dev/null)
   if [ -z "$api_key" ]; then
     die "❌ Ошибка регистрации баунсера"
   fi
-  log_info "    ✅ Баунсер зарегистрирован"
+  log_info "    ✅ Баунсер зарегистрирован" >&2
   printf "%s" "$api_key"
 }
 
@@ -68,19 +68,19 @@ print_instructions() {
 
   printf "${YELLOW}═══ 1. С НУЛЯ (на ноде ещё ничего нет) ═══${NC}\n"
   printf "\n"
-  printf "%s\n" "${CYAN}curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_node' && cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && docker compose up -d${NC}"
+  printf "%b\n" "${CYAN}curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_node' && cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && docker compose up -d${NC}"
   printf "\n"
   printf "\n"
 
   printf "${YELLOW}═══ 2. РЕПОЗИТОРИЙ УЖЕ СКАЧАН ═══${NC}\n"
   printf "\n"
-  printf "%s\n" "${CYAN}cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && docker compose up -d${NC}"
+  printf "%b\n" "${CYAN}cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && docker compose up -d${NC}"
   printf "\n"
   printf "\n"
 
   printf "${YELLOW}═══ 3. ТОЛЬКО ОБНОВИТЬ .ENV ═══${NC}\n"
   printf "\n"
-  printf "%s\n" "${CYAN}cd crowdsec_node && $env_cmd && docker compose up -d${NC}"
+  printf "%b\n" "${CYAN}cd crowdsec_node && $env_cmd && docker compose up -d${NC}"
   printf "\n"
   printf "\n"
 }
