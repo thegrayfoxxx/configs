@@ -443,6 +443,14 @@ docker compose restart crowdsec-agent
 
 Управление блоклистами Traffic Guard — скачивает публичные списки IP (сканеры, правительственные сети) и импортирует их в LAPI как решения с указанным сроком.
 
+Источники списков: [shadow-netlab/traffic-guard-lists](https://github.com/shadow-netlab/traffic-guard-lists)
+
+| Список | Описание | Срок бана по умолчанию |
+|---|---|---|
+| `traffic-guard-scanners` | IP-адреса сканеров и ботов | 30 дней |
+| `traffic-guard-gov-networks` | Правительственные сети | 90 дней |
+| `traffic-guard-skipa` | Список skipa | 90 дней |
+
 ```bash
 ./scripts/traffic-guard.sh      # интерактивное меню
 # или из меню LAPI: пункт 3
@@ -470,6 +478,8 @@ docker compose restart crowdsec-agent
 | `6` | Настроить cron для автообновления |
 
 Конфиг длительности бана хранится в `traffic-guard.cfg`, создаётся автоматически при первом сохранении.
+
+> Благодарность проекту [shadow-netlab/traffic-guard-lists](https://github.com/shadow-netlab/traffic-guard-lists) за публичные списки IP, которые используются Traffic Guard для блокировки сканеров и вредоносного трафика.
 
 ---
 
