@@ -14,16 +14,19 @@ mkdir -p "$BLOCKLISTS_DIR"
 declare -A LISTS=(
     ["traffic-guard-scanners"]="https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/antiscanner.list"
     ["traffic-guard-gov-networks"]="https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/government_networks.list"
+    ["traffic-guard-skipa"]="https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/skipa.list"
 )
 
 declare -A DURATIONS=(
     ["traffic-guard-scanners"]="30"
     ["traffic-guard-gov-networks"]="90"
+    ["traffic-guard-skipa"]="90"
 )
 
 LIST_NAMES=(
     "traffic-guard-scanners"
     "traffic-guard-gov-networks"
+    "traffic-guard-skipa"
 )
 
 # ─── КОНФИГУРАЦИЯ ────────────────────────────────────────────
@@ -35,6 +38,7 @@ load_config() {
 }
 
 save_config() {
+  local name
   cat > "$CONFIG_FILE" <<EOF
 # Длительность бана в днях для каждого списка
 EOF
@@ -142,12 +146,12 @@ remove_list() {
 select_list() {
   local i=1
   for name in "${LIST_NAMES[@]}"; do
-    printf "  ${CYAN}%s.${NC} %s\n" "$i" "$name"
+    printf "  ${CYAN}%s.${NC} %s\n" "$i" "$name" >&2
     ((i++))
   done
-  printf "  ${RED}0.${NC} Назад\n"
-  printf "\n"
-  printf "${CYAN}👉 Номер:${NC} "
+  printf "  ${RED}0.${NC} Назад\n" >&2
+  printf "\n" >&2
+  printf "${CYAN}👉 Номер:${NC} " >&2
   read -r n < /dev/tty
 
   local idx=$((n - 1))
@@ -228,7 +232,7 @@ edit_duration_menu() {
       *) continue ;;
     esac
     save_config
-    log_info "\n✅ Обновлено: ${DURATIONS[$name]}д"
+    log_info "✅ Обновлено: ${DURATIONS[$name]}д"
     read -p "[Enter]..." < /dev/tty
     return
   done
@@ -380,7 +384,7 @@ show_menu() {
       *) log_error "❌ Неверный пункт"; sleep 1; continue ;;
     esac
 
-    if [ "$choice" != "3" ] && [ "$choice" != "5" ]; then
+    if [ "$choice" != "3" ] && [ "$choice" != "5" ] && [ "$choice" != "6" ]; then
       printf "\n"
       read -p "[Enter] в меню..." < /dev/tty
     fi

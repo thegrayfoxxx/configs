@@ -75,9 +75,14 @@ show_menu() {
         printf "\n"
         printf "  ${CYAN}🐳 Перезапускаю контейнеры...${NC}\n"
         if [ -f "${SCRIPT_DIR}/compose.yml" ]; then
-          cd "${SCRIPT_DIR}" && docker compose restart
-          printf "\n"
-          log_info "  ✅ Контейнеры перезапущены"
+          cd "${SCRIPT_DIR}" || { log_error "❌ Ошибка перехода в директорию"; break; }
+          if docker compose restart; then
+            printf "\n"
+            log_info "  ✅ Контейнеры перезапущены"
+          else
+            printf "\n"
+            log_error "  ❌ Ошибка перезапуска контейнеров"
+          fi
         else
           log_error "❌ compose.yml не найден"
           printf "  Сначала скопируй шаблон: ${CYAN}cp compose-example.yml compose.yml${NC}\n"
