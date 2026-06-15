@@ -1,36 +1,63 @@
-#!/bin/sh
+#!/bin/bash
+set -u
+set -o pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
 
-# --- ЦВЕТА ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+TMP_ARCHIVE="/tmp/crowdsec-lapi.tar.gz"
+TEMP_DIR="/tmp/crowdsec-lapi-update"
 
-echo -e "${CYAN}┌─────────────────────────────────────────────┐${NC}"
-echo -e "${CYAN}│           🔄 ОБНОВЛЕНИЕ КОНФИГОВ            │${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
-echo ""
+update_from_repo() {
+  # Переходим в корень lapi
+  cd "$(dirname "$0")/.." || exit 1
 
-echo -e "  ${CYAN}📥 Скачиваю свежие конфиги...${NC}"
-curl -sL https://github.com/thegrayfoxxx/configs/archive/main.tar.gz -o /tmp/crowdsec-lapi.tar.gz
+  clear_screen
+  print_header "ОБНОВЛЕНИЕ КОНФИГОВ" "🔄"
 
-echo -e "  ${CYAN}📦 Обновляю файлы...${NC}"
-tar xzf /tmp/crowdsec-lapi.tar.gz \
-  --strip=3 \
-  --wildcards \
-  '*/crowdsec/crowdsec_lapi/compose-example.yml' \
-  '*/crowdsec/crowdsec_lapi/.env.example' \
-  '*/crowdsec/crowdsec_lapi/config/*' \
-  '*/crowdsec/crowdsec_lapi/scripts/*'
+  printf "  ${CYAN}📥 Скачиваю свежие конфиги...${NC}\n"
+  if ! curl -fsSL https://github.com/thegrayfoxxx/configs/archive/main.tar.gz -o "$TMP_ARCHIVE"; then
+    printf "\n"
+    die "❌ Ошибка скачивания. Проверь интернет."
+  fi
 
-chmod +x scripts/*.sh 2>/dev/null
-rm -f /tmp/crowdsec-lapi.tar.gz
+  # Очищаем временную директорию
+  rm -rf "$TEMP_DIR"
+  mkdir -p "$TEMP_DIR"
 
-echo ""
-echo -e "  ${GREEN}✅ Готово${NC}"
-echo ""
-echo -e "  ${YELLOW}⚠️  Не забудь скопировать шаблон:${NC}"
-echo -e "     ${CYAN}cp compose-example.yml compose.yml${NC}"
+  printf "  ${CYAN}📦 Распаковываю...${NC}\n"
+  if ! tar xzf "$TMP_ARCHIVE" -C "$TEMP_DIR" \
+    --strip=3 \
+    --wildcards \
+    '*/crowdsec/crowdsec_lapi/compose-example.yml' \
+    '*/crowdsec/crowdsec_lapi/.env.example' \
+    '*/crowdsec/crowdsec_lapi/config/*' \
+    '*/crowdsec/crowdsec_lapi/scripts/*' \
+    '*/crowdsec/crowdsec_lapi/scripts/lib/*'; then
+    printf "\n"
+    rm -f "$TMP_ARCHIVE"
+    rm -rf "$TEMP_DIR"
+    die "❌ Ошибка распаковки архива."
+  fi
+
+  # Копируем (не перезаписывая существующие файлы)
+  printf "  ${CYAN}📋 Обновляю файлы...${NC}\n"
+  cp -n "$TEMP_DIR"/compose-example.yml . 2>/dev/null || true
+  cp -n "$TEMP_DIR"/.env.example . 2>/dev/null || true
+  cp -r "$TEMP_DIR"/config/* config/ 2>/dev/null || true
+  cp -r "$TEMP_DIR"/scripts/* scripts/ 2>/dev/null || true
+
+  chmod +x scripts/*.sh 2>/dev/null || true
+
+  # Очистка
+  rm -f "$TMP_ARCHIVE"
+  rm -rf "$TEMP_DIR"
+
+  printf "\n"
+  log_info "  ✅ Готово"
+  printf "\n"
+  log_warn "  ⚠️  Не забудь скопировать шаблон:"
+  printf "     ${CYAN}cp compose-example.yml compose.yml${NC}\n"
+}
+
+update_from_repo

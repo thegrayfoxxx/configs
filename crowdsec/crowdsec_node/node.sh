@@ -1,62 +1,58 @@
 #!/bin/bash
 set -u
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/scripts/lib/common.sh"
+
 SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 
-show_header() {
-  tput clear
-  echo -e "${CYAN}┌─────────────────────────────────────────────┐${NC}"
-  echo -e "${CYAN}│            🖥️  NODE MANAGER                │${NC}"
-  echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
-  echo ""
-}
-
 show_status() {
-  echo ""
-  echo -e "${YELLOW}═══ СТАТУС ═══${NC}"
+  printf "\n"
+  log_warn "═══ СТАТУС ═══"
 
   # Docker контейнеры
-  echo ""
-  echo -e "  ${CYAN}🐳 Контейнеры:${NC}"
+  printf "\n"
+  printf "  ${CYAN}🐳 Контейнеры:${NC}\n"
   if docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -q 'crowdsec'; then
     docker ps --format '  {{.Names}}: {{.Status}}' 2>/dev/null | grep crowdsec
   else
-    echo -e "  ${RED}❌ Контейнеры не запущены${NC}"
+    log_error "❌ Контейнеры не запущены"
   fi
 
   # ipset
-  echo ""
-  echo -e "  ${CYAN}🛡️  Блокировки (ipset):${NC}"
+  printf "\n"
+  printf "  ${CYAN}🛡️  Блокировки (ipset):${NC}\n"
   if command -v ipset >/dev/null 2>&1; then
-    local entries=$(sudo ipset list crowdsec-blacklists-0 -t 2>/dev/null | grep "Number of entries" | awk '{print $4}')
-    if [ -n "$entries" ]; then
-      echo -e "  ${GREEN}✅${NC} IP в блоке: ${GREEN}$entries${NC}"
+    if command -v sudo >/dev/null 2>&1; then
+      local entries
+      entries=$(sudo -n ipset list crowdsec-blacklists-0 -t 2>/dev/null \
+        | grep "Number of entries" \
+        | awk '{print $4}')
+      if [ -n "$entries" ]; then
+        log_info "  ✅ IP в блоке: $entries"
+      else
+        log_warn "  ⚠️  Список crowdsec-blacklists-0 не найден"
+        printf "  Возможно, баунсер ещё не создал его\n"
+      fi
     else
-      echo -e "  ${YELLOW}⚠️  Список crowdsec-blacklists-0 не найден${NC}"
-      echo -e "  Возможно, баунсер ещё не создал его"
+      log_warn "  ⚠️  sudo не установлен"
     fi
   else
-    echo -e "  ${YELLOW}⚠️  ipset не установлен${NC}"
+    log_warn "  ⚠️  ipset не установлен"
   fi
 }
 
 show_menu() {
   trap 'exit 0' INT
   while true; do
-    show_header
-    echo -e "  ${GREEN}1.${NC} 🔄 Обновить конфиги"
-    echo -e "  ${GREEN}2.${NC} 📊 Статус"
-    echo -e "  ${GREEN}3.${NC} 🐳 Перезапустить контейнеры"
-    echo -e "  ${RED}0.${NC} ❌ Выход"
-    echo ""
-    echo -ne "${CYAN}👉 Пункт:${NC} "
+    clear_screen
+    print_header "NODE MANAGER" "🖥️"
+    printf "  ${GREEN}1.${NC} 🔄 Обновить конфиги\n"
+    printf "  ${GREEN}2.${NC} 📊 Статус\n"
+    printf "  ${GREEN}3.${NC} 🐳 Перезапустить контейнеры\n"
+    printf "  ${RED}0.${NC} ❌ Выход\n"
+    printf "\n"
+    printf "${CYAN}👉 Пункт:${NC} "
     read -r choice < /dev/tty
 
     case "$choice" in
@@ -64,34 +60,34 @@ show_menu() {
         if [ -f "${SCRIPTS_DIR}/update.sh" ]; then
           bash "${SCRIPTS_DIR}/update.sh"
         else
-          tput clear
-          echo -e "${RED}❌ update.sh не найден${NC}"
+          clear_screen
+          log_error "❌ update.sh не найден"
         fi
         ;;
       2)
-        tput clear
-        show_header
+        clear_screen
+        print_header "СТАТУС"
         show_status
         ;;
       3)
-        tput clear
-        echo -e "${YELLOW}═══ ПЕРЕЗАПУСК ═══${NC}"
-        echo ""
-        echo -e "  ${CYAN}🐳 Перезапускаю контейнеры...${NC}"
+        clear_screen
+        printf "${YELLOW}═══ ПЕРЕЗАПУСК ═══${NC}\n"
+        printf "\n"
+        printf "  ${CYAN}🐳 Перезапускаю контейнеры...${NC}\n"
         if [ -f "${SCRIPT_DIR}/compose.yml" ]; then
           cd "${SCRIPT_DIR}" && docker compose restart
-          echo ""
-          echo -e "  ${GREEN}✅ Контейнеры перезапущены${NC}"
+          printf "\n"
+          log_info "  ✅ Контейнеры перезапущены"
         else
-          echo -e "  ${RED}❌ compose.yml не найден${NC}"
-          echo -e "  Сначала скопируй шаблон: ${CYAN}cp compose-example.yml compose.yml${NC}"
+          log_error "❌ compose.yml не найден"
+          printf "  Сначала скопируй шаблон: ${CYAN}cp compose-example.yml compose.yml${NC}\n"
         fi
         ;;
       0) exit 0 ;;
-      *) echo -e "${RED}❌ Неверный пункт${NC}"; sleep 1; continue ;;
+      *) log_error "❌ Неверный пункт"; sleep 1; continue ;;
     esac
 
-    echo ""
+    printf "\n"
     read -p "[Enter] в меню..." < /dev/tty
   done
 }

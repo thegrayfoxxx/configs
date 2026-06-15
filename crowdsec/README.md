@@ -1,6 +1,10 @@
 # CrowdSec
 
-Развёртывание [CrowdSec](https://www.crowdsec.net/) в Docker Compose: LAPI-сервер и агенты с баунсером для блокировки.
+Набор скриптов и конфигураций для развёртывания [CrowdSec](https://www.crowdsec.net/) в Docker Compose: LAPI-сервер и агенты с баунсером для блокировки.
+
+Архитектура разделена на две независимые части:
+- **LAPI** (`crowdsec_lapi/`) — центральный сервер с API, дашбордом и локальным баунсером
+- **Node** (`crowdsec_node/`) — удалённые ноды, агенты которых подключаются к LAPI
 
 ## Используемые образы
 
@@ -38,34 +42,6 @@ flowchart TB
     RBOUNCER -->|HTTPS| RP
 ```
 
-## Структура
-
-```
-crowdsec/
-├── README.md
-├── crowdsec_lapi/
-│   ├── lapi.sh                    # 🧰 Главный скрипт (меню)
-│   ├── compose-example.yml        # Docker Compose: LAPI + Dashboard + bouncer
-│   ├── .env.example               # Шаблон переменных
-│   ├── config/
-│   │   ├── acquis.yaml            # Настройка источников логов
-│   │   └── crowdsec-firewall-bouncer.yaml  # Настройки локального баунсера
-│   └── scripts/
-│       ├── update.sh              # Обновление конфигов
-│       ├── setup-node.sh          # Регистрация удалённой ноды
-│       └── traffic-guard.sh       # 🛡️ Управление блоклистами
-│
-└── crowdsec_node/
-    ├── node.sh                    # 🖥️ Главный скрипт (меню)
-    ├── compose-example.yml        # Docker Compose: agent + bouncer
-    ├── .env.example               # Шаблон переменных
-    ├── config/
-    │   ├── acquis.yaml            # Настройка источников логов
-    │   └── crowdsec-firewall-bouncer.yaml  # Настройки iptables/nftables
-    └── scripts/
-        └── update.sh              # Обновление конфигов
-```
-
 ## Тестовое окружение
 
 Конфигурации протестированы на **Debian 12** и **Debian 13**.
@@ -74,6 +50,37 @@ crowdsec/
 
 1. **LAPI** — поднять центральный сервер с LAPI, Dashboard и локальным баунсером.
 2. **Node** — на каждой удалённой ноде зарегистрировать агента и баунсера на LAPI, развернуть стек.
+
+---
+
+## Структура
+
+```
+crowdsec/
+├── crowdsec_lapi/                          # LAPI-сервер
+│   ├── compose-example.yml                 # Docker Compose: LAPI + Dashboard + bouncer
+│   ├── lapi.sh                             # 🧰 главное меню LAPI
+│   ├── config/
+│   │   ├── acquis.yaml                     # настройка источников логов
+│   │   └── crowdsec-firewall-bouncer.yaml  # настройки баунсера
+│   └── scripts/
+│       ├── lib/common.sh                   # общая библиотека (цвета, хелперы)
+│       ├── setup-node.sh                   # регистрация удалённой ноды
+│       ├── traffic-guard.sh                # 🛡️ управление блоклистами
+│       ├── traffic-guard.cfg               # конфиг длительности бана
+│       ├── update.sh                       # обновление конфигов из репозитория
+│       └── blocklists/                     # скачанные блоклисты
+│
+└── crowdsec_node/                          # удалённая нода
+    ├── compose-example.yml                 # Docker Compose: agent + bouncer
+    ├── node.sh                             # 🖥️ главное меню ноды
+    ├── config/
+    │   ├── acquis.yaml                     # настройка источников логов
+    │   └── crowdsec-firewall-bouncer.yaml  # настройки iptables/nftables
+    └── scripts/
+        ├── lib/common.sh                   # общая библиотека (цвета, хелперы)
+        └── update.sh                       # обновление конфигов из репозитория
+```
 
 ---
 
@@ -101,6 +108,14 @@ cp compose-example.yml compose.yml
 cp .env.example .env
 ```
 
+Отредактируй `.env` — укажи часовой пояс и пароли:
+
+```dotenv
+TZ=Europe/Moscow
+API_KEY_FOR_LOCAL_BOUNCER=сюда-вставить-ключ-после-шага-4
+CROWDSEC_PASSWORD=пароль-для-панели
+```
+
 **Что поправить в `compose.yml`:**
 
 | Параметр | Что сделать |
@@ -108,14 +123,6 @@ cp .env.example .env
 | Пути к логам | Подставить актуальные пути для твоей системы |
 
 > Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`.
-
-**Что поправить в `.env`:**
-
-| Переменная | Что указать |
-|---|---|
-| `TZ` | Часовой пояс, например `Europe/Moscow` |
-| `API_LOCAL_PORT` | Порт для LAPI на хосте (по умолчанию `8082`) |
-| `API_URL` | Внешний домен LAPI (для удалённых нод) |
 
 ### Шаг 3 — запусти LAPI
 
@@ -149,7 +156,7 @@ docker exec crowdsec-lapi cscli machines add dashboard \
   --force
 ```
 
-Обнови `.env`:
+Обнови `.env`, если не сделал это раньше:
 
 ```dotenv
 CROWDSEC_USER=dashboard
@@ -164,21 +171,22 @@ docker compose up -d
 
 > **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy.
 
-### Управление LAPI
+### Управление LAPI через скрипт
 
 Для повседневных задач используй `lapi.sh`:
 
 ```bash
-cd crowdsec_lapi
 ./lapi.sh
 ```
 
 Меню:
-- **1** — обновить конфиги из репозитория
-- **2** — зарегистрировать удалённую ноду
-- **3** — Traffic Guard (управление блоклистами)
 
-  Внутри Traffic Guard доступен **пункт 6** — настройка автообновления блоклистов через cron (от root).
+| Пункт | Действие |
+|---|---|
+| `1` | Обновить конфиги из репозитория |
+| `2` | Зарегистрировать удалённую ноду |
+| `3` | Traffic Guard — управление блоклистами |
+| `0` | Выход |
 
 ### Команды управления LAPI
 
@@ -253,73 +261,41 @@ docker exec crowdsec-lapi cscli bouncers delete имя-баунсера
 
 Удалённая нода запускается на каждом хосте, который нужно защищать. Состоит из двух контейнеров:
 
-- **crowdsec-agent** — собирает логи с хоста и отправляет на LAPI.
-- **crowdsec-bouncer** — получает от LAPI решения и блокирует IP через iptables/nftables.
+- **crowdsec-agent** — собирает логи с хоста и отправляет на LAPI
+- **crowdsec-bouncer** — получает от LAPI решения и блокирует IP через iptables/nftables
 
 > Перед началом убедись, что LAPI уже запущен и доступен через reverse proxy.
 
-Есть два способа настройки ноды:
+### Быстрый способ — через скрипт
 
-**Вариант 1 — через скрипт (быстро).** Зарегистрируй ноду на LAPI одной командой:
+На LAPI запусти регистрацию:
 
 ```bash
 cd crowdsec_lapi
-./lapi.sh
-# выбери пункт 2
+./lapi.sh                      # → пункт 2
+# или напрямую:
+bash scripts/setup-node.sh     # можно указать имя: bash scripts/setup-node.sh us6
 ```
 
-Или напрямую:
+Скрипт создаст `имя-agent` и `имя-bouncer`, сгенерирует пароль, получит API-токен и выведет готовую команду для ноды. Скопируй её и выполни на удалённой ноде.
 
-```bash
-cd crowdsec_lapi/scripts
-./setup-node.sh имя-ноды
-```
+### Пошаговая настройка (вручную)
 
-Скрипт создаст `имя-ноды-agent` и `имя-ноды-bouncer`, сгенерирует пароль, получит API-токен и выведет готовую команду для ноды.
-
-**Вариант 2 — вручную (пошагово).** Выполни шаги 1–4 ниже.
-
-### Шаг 1 — скачай конфиги
+#### Шаг 1 — скачай конфиги
 
 ```bash
 curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_node'
 cd crowdsec_node
 ```
 
-### Шаг 2 — подготовь файлы
+#### Шаг 2 — подготовь файлы
 
 ```bash
 cp compose-example.yml compose.yml
 cp .env.example .env
 ```
 
-**Что поправить в `compose.yml`:**
-
-| Параметр | Что сделать |
-|---|---|
-| Пути к логам | Подставить актуальные пути для твоей системы |
-
-> Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`. Проверь и подправь.
-
-### Шаг 3 — зарегистрируй ноду на LAPI (вручную)
-
-```bash
-openssl rand -base64 32
-```
-
-```bash
-docker exec crowdsec-lapi cscli machines add имя-агента \
-  --password сгенерированный-пароль \
-  --force
-```
-
-```bash
-docker exec crowdsec-lapi cscli bouncers add имя-баунсера
-```
-
-Команда вернёт API-токен. Скопируй его.
-
-### Шаг 4 — заполни `.env` и запусти
+Отредактируй `.env`:
 
 ```dotenv
 API_URL=https://crowdsec.example.com
@@ -329,64 +305,51 @@ AGENT_PASSWORD=сгенерированный-пароль
 API_KEY=токен-баунсера
 ```
 
+**Что поправить в `compose.yml`:**
+
+| Параметр | Что сделать |
+|---|---|
+| Пути к логам | Подставить актуальные пути для твоей системы |
+
+#### Шаг 3 — зарегистрируй ноду на LAPI
+
+```bash
+# Сгенерируй пароль
+openssl rand -base64 32
+```
+
+```bash
+# Зарегистрируй агента (выполняется на LAPI)
+docker exec crowdsec-lapi cscli machines add имя-агента \
+  --password сгенерированный-пароль \
+  --force
+```
+
+```bash
+# Зарегистрируй баунсера (выполняется на LAPI)
+docker exec crowdsec-lapi cscli bouncers add имя-баунсера
+```
+
+#### Шаг 4 — запусти ноду
+
 ```bash
 docker compose up -d
 ```
 
-### Управление нодой
-
-Для повседневных задач используй `node.sh`:
+### Управление нодой через скрипт
 
 ```bash
-cd crowdsec_node
 ./node.sh
 ```
 
 Меню:
-- **1** — обновить конфиги из репозитория
-- **2** — статус (контейнеры + количество блокировок)
-- **3** — перезапустить контейнеры
 
-### Переменные окружения
-
-#### `crowdsec-agent`
-
-| Переменная | Описание |
+| Пункт | Действие |
 |---|---|
-| `DISABLE_LOCAL_API` | Всегда `true` — агент без встроенного LAPI |
-| `LOCAL_API_URL` | URL LAPI-сервера (берётся из `API_URL` в `.env`) |
-| `COLLECTIONS` | Коллекции (например, `crowdsecurity/linux crowdsecurity/sshd`) |
-| `TZ` | Часовой пояс (из `.env`) |
-| `AGENT_USERNAME` | Имя агента, зарегистрированное в LAPI |
-| `AGENT_PASSWORD` | Пароль агента |
-
-#### `crowdsec-bouncer`
-
-| Переменная | Описание |
-|---|---|
-| `MODE` | Режим блокировки: `iptables` или `nftables` |
-| `API_URL` | URL LAPI-сервера (берётся из `API_URL` в `.env`) |
-| `API_KEY` | Токен, полученный при регистрации баунсера |
-
-### Настройка acquis.yaml
-
-Файл `config/acquis.yaml` определяет источники логов:
-
-```yaml
-filenames:
-  - /var/log/auth.log
-  - /var/log/syslog
-labels:
-  type: syslog
-```
-
-Чтобы добавить другие источники (например, `/var/log/nginx/access.log`), допиши их в `filenames` и пробрось соответствующий volume в `compose.yml`.
-
-После изменения `compose.yml` или конфигов перезапусти агента:
-
-```bash
-docker compose restart crowdsec-agent
-```
+| `1` | Обновить конфиги из репозитория |
+| `2` | Статус (контейнеры + количество блокировок) |
+| `3` | Перезапустить контейнеры |
+| `0` | Выход |
 
 ### Просмотр статуса
 
@@ -412,15 +375,11 @@ docker exec crowdsec-lapi cscli bouncers list
 
 Баунсер работает в режиме host network и блокирует IP через iptables/nftables.
 
-**Логи баунсера:**
-
 ```bash
+# Логи баунсера
 docker compose logs crowdsec-bouncer
-```
 
-**Проверить правила блокировки:**
-
-```bash
+# Проверить правила блокировки
 sudo ipset list crowdsec-blacklists-0 -t
 ```
 
@@ -436,39 +395,129 @@ sudo ipset list crowdsec-blacklists-0 2>/dev/null | grep 1.2.3.4 || sudo nft lis
 docker exec crowdsec-lapi cscli decisions delete --ip 1.2.3.4
 ```
 
+### Настройка источников логов (acquis.yaml)
+
+Файл `config/acquis.yaml` определяет, какие логи читать. По умолчанию:
+
+```yaml
+filenames:
+  - /var/log/auth.log
+  - /var/log/syslog
+labels:
+  type: syslog
+```
+
+Чтобы добавить другие источники (например, `/var/log/nginx/access.log`), допиши их в `filenames` и пробрось соответствующий volume в `compose.yml`. После изменения перезапусти агента:
+
+```bash
+docker compose restart crowdsec-agent
+```
+
 ---
 
-## Обновление
+## Traffic Guard (блоклисты)
 
-Скрипты скачивают свежие файлы из репозитория. После обновления скопируй шаблон (для LAPI) и перезапусти контейнеры.
+Управление блоклистами Traffic Guard — скачивает публичные списки IP (сканеры, правительственные сети) и импортирует их в LAPI как решения с указанным сроком.
+
+```bash
+./scripts/traffic-guard.sh      # интерактивное меню
+# или из меню LAPI: пункт 3
+```
+
+**Режимы командной строки (для cron):**
+
+| Команда | Действие |
+|---|---|
+| `./traffic-guard.sh download` | Только скачать списки |
+| `./traffic-guard.sh apply` | Применить списки в LAPI |
+| `./traffic-guard.sh install` | Скачать + применить |
+| `./traffic-guard.sh remove` | Удалить все решения |
+| `./traffic-guard.sh status` | Показать статус |
+
+**Пункты меню:**
+
+| Пункт | Действие |
+|---|---|
+| `1` | Скачать блоклисты локально |
+| `2` | Установить блоклисты в LAPI |
+| `3` | Полное обновление: скачать + установить |
+| `4` | Удалить списки из LAPI |
+| `5` | Настроить срок бана для каждого списка |
+| `6` | Настроить cron для автообновления |
+
+Конфиг длительности бана хранится в `traffic-guard.cfg`, создаётся автоматически при первом сохранении.
+
+---
+
+## Общая библиотека `scripts/lib/common.sh`
+
+Каждая часть (lapi и node) содержит свою копию `common.sh`. Доступные функции:
+
+| Функция | Назначение |
+|---|---|
+| `clear_screen()` | Очистка экрана с fallback, если `tput` недоступен |
+| `log_info()` / `log_warn()` / `log_error()` | Цветной вывод сообщений |
+| `die()` | Вывод ошибки и выход |
+| `print_header(title, icon)` | Шапка меню в рамке |
+| `require_cmd(cmd, hint)` | Проверка наличия утилиты |
+| `lapi_is_running()` | Проверка, запущен ли контейнер `crowdsec-lapi` (только в LAPI) |
+| `require_lapi()` | То же, но с `die()` при ошибке (только в LAPI) |
+
+## Обновление конфигов
+
+Скрипты скачивают свежие файлы из репозитория. После обновления скопируй шаблон и перезапусти контейнеры.
 
 Через главные скрипты:
 
 ```bash
 # LAPI
 cd crowdsec_lapi
-./lapi.sh
-# выбери пункт 1
+./lapi.sh → пункт 1
 
 # Node
 cd crowdsec_node
-./node.sh
-# выбери пункт 1
+./node.sh → пункт 1
 ```
 
-Или напрямую:
+Напрямую:
 
 ```bash
 # LAPI
 cd crowdsec_lapi/scripts
-./update.sh
-cd ..
-cp compose-example.yml compose.yml
-docker compose up -d
+./update.sh && cd .. && cp compose-example.yml compose.yml && docker compose up -d
 
 # Node
 cd crowdsec_node/scripts
-./update.sh
-cd ..
-docker compose up -d
+./update.sh && cd .. && docker compose up -d
 ```
+
+## Переменные окружения
+
+### LAPI
+
+| Переменная | Описание |
+|---|---|
+| `API_LOCAL_PORT` | Порт для LAPI на хосте (по умолчанию `8082`) |
+| `TZ` | Часовой пояс, например `Europe/Moscow` |
+| `API_KEY_FOR_LOCAL_BOUNCER` | API-ключ для локального баунсера |
+| `CROWDSEC_USER` | Логин для дашборда |
+| `CROWDSEC_PASSWORD` | Пароль для дашборда |
+
+### Node
+
+| Переменная | Описание |
+|---|---|
+| `API_URL` | URL LAPI-сервера |
+| `TZ` | Часовой пояс |
+| `AGENT_USERNAME` | Имя агента, зарегистрированное в LAPI |
+| `AGENT_PASSWORD` | Пароль агента |
+| `API_KEY` | API-ключ баунсера |
+
+## Зависимости
+
+- **bash** 4+ (для `declare -A` в `traffic-guard.sh`)
+- **docker** с Docker Compose
+- **curl** (для скачивания списков и обновлений)
+- **tar** (для распаковки обновлений)
+- **openssl** (для генерации паролей в `setup-node.sh`)
+- **ipset** + **sudo** (на ноде для просмотра блокировок)

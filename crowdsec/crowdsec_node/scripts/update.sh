@@ -1,37 +1,60 @@
-#!/bin/sh
+#!/bin/bash
+set -u
+set -o pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
 
-# --- ЦВЕТА ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+TMP_ARCHIVE="/tmp/crowdsec-node.tar.gz"
+TEMP_DIR="/tmp/crowdsec-node-update"
 
-echo -e "${CYAN}┌─────────────────────────────────────────────┐${NC}"
-echo -e "${CYAN}│         🔄 ОБНОВЛЕНИЕ КОНФИГОВ НОДЫ        │${NC}"
-echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
-echo ""
+update_from_repo() {
+  cd "$(dirname "$0")/.." || exit 1
 
-echo -e "  ${CYAN}📥 Скачиваю свежие конфиги...${NC}"
-curl -sL https://github.com/thegrayfoxxx/configs/archive/main.tar.gz -o /tmp/crowdsec-node.tar.gz
+  clear_screen
+  print_header "ОБНОВЛЕНИЕ КОНФИГОВ НОДЫ" "🔄"
 
-echo -e "  ${CYAN}📦 Обновляю файлы...${NC}"
-tar xzf /tmp/crowdsec-node.tar.gz \
-  --strip=3 \
-  --wildcards \
-  '*/crowdsec/crowdsec_node/compose-example.yml' \
-  '*/crowdsec/crowdsec_node/.env.example' \
-  '*/crowdsec/crowdsec_node/config/*' \
-  '*/crowdsec/crowdsec_node/scripts/*'
+  printf "  ${CYAN}📥 Скачиваю свежие конфиги...${NC}\n"
+  if ! curl -fsSL https://github.com/thegrayfoxxx/configs/archive/main.tar.gz -o "$TMP_ARCHIVE"; then
+    printf "\n"
+    die "❌ Ошибка скачивания. Проверь интернет."
+  fi
 
-chmod +x scripts/*.sh 2>/dev/null
-rm -f /tmp/crowdsec-node.tar.gz
+  rm -rf "$TEMP_DIR"
+  mkdir -p "$TEMP_DIR"
 
-echo ""
-echo -e "  ${GREEN}✅ Готово${NC}"
-echo ""
-echo -e "  ${YELLOW}⚠️  Если нужно, скопируй шаблоны:${NC}"
-echo -e "     ${CYAN}cp compose-example.yml compose.yml${NC}"
-echo -e "     ${CYAN}cp .env.example .env${NC}"
+  printf "  ${CYAN}📦 Распаковываю...${NC}\n"
+  if ! tar xzf "$TMP_ARCHIVE" -C "$TEMP_DIR" \
+    --strip=3 \
+    --wildcards \
+    '*/crowdsec/crowdsec_node/compose-example.yml' \
+    '*/crowdsec/crowdsec_node/.env.example' \
+    '*/crowdsec/crowdsec_node/config/*' \
+    '*/crowdsec/crowdsec_node/scripts/*' \
+    '*/crowdsec/crowdsec_node/scripts/lib/*'; then
+    printf "\n"
+    rm -f "$TMP_ARCHIVE"
+    rm -rf "$TEMP_DIR"
+    die "❌ Ошибка распаковки архива."
+  fi
+
+  printf "  ${CYAN}📋 Обновляю файлы...${NC}\n"
+  cp -n "$TEMP_DIR"/compose-example.yml . 2>/dev/null || true
+  cp -n "$TEMP_DIR"/.env.example . 2>/dev/null || true
+  cp -r "$TEMP_DIR"/config/* config/ 2>/dev/null || true
+  cp -r "$TEMP_DIR"/scripts/* scripts/ 2>/dev/null || true
+
+  chmod +x scripts/*.sh 2>/dev/null || true
+
+  rm -f "$TMP_ARCHIVE"
+  rm -rf "$TEMP_DIR"
+
+  printf "\n"
+  log_info "  ✅ Готово"
+  printf "\n"
+  log_warn "  ⚠️  Если нужно, скопируй шаблоны:"
+  printf "     ${CYAN}cp compose-example.yml compose.yml${NC}\n"
+  printf "     ${CYAN}cp .env.example .env${NC}\n"
+}
+
+update_from_repo
