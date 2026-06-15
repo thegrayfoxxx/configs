@@ -49,6 +49,7 @@ lapi_is_running() {
 
 require_lapi() {
   if ! lapi_is_running; then
-    die "❌ Контейнер crowdsec-lapi не запущен. Сначала: docker compose up -d"
+    log_error "❌ Контейнер crowdsec-lapi не запущен. Сначала: docker compose up -d"
+    return 1
   fi
 }

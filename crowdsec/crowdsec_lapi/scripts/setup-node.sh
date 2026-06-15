@@ -92,7 +92,7 @@ print_header "РЕГИСТРАЦИЯ УДАЛЁННОЙ НОДЫ" "🖥️"
 
 # Проверка зависимостей
 require_cmd openssl
-require_lapi
+require_lapi || exit 1
 
 # Имя ноды
 if [ -n "${1:-}" ]; then

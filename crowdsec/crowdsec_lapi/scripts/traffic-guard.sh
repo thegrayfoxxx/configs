@@ -310,7 +310,11 @@ setup_cron() {
   esac
 
   # Удаляем старую запись с этой же командой (если была), добавляем новую
-  (crontab -l 2>/dev/null | grep -v -F "$tg_cmd"; printf "%s %s\n" "$cron_time" "$tg_cmd") | crontab -
+  if ! (crontab -l 2>/dev/null | grep -v -F "$tg_cmd"; printf "%s %s\n" "$cron_time" "$tg_cmd") | crontab -; then
+    log_error "  ❌ Ошибка установки задачи. Проверь crontab."
+    read -p "[Enter] назад..." < /dev/tty
+    return
+  fi
   printf "\n"
   log_info "  ✅ Задача установлена!"
   printf "     ${CYAN}%s %s${NC}\n" "$cron_time" "$tg_cmd"
@@ -398,18 +402,23 @@ load_config
 case "${1:-}" in
   download) download_all ;;
   apply)
-    require_lapi && apply_all
+    require_lapi || exit 1
+    apply_all
     ;;
   install)
     download_all
     printf "\n"
-    require_lapi && apply_all
+    require_lapi || exit 1
+    apply_all
     ;;
   remove)
-    require_lapi
+    require_lapi || exit 1
     for name in "${LIST_NAMES[@]}"; do
-      $CSCLI decisions delete --scenario "$name" > /dev/null 2>&1
+      if ! $CSCLI decisions delete --scenario "$name" > /dev/null 2>&1; then
+        log_error "    ❌ $name: ошибка удаления"
+      fi
     done
+    log_info "  ✅ Удаление завершено"
     ;;
   status)
     for name in "${LIST_NAMES[@]}"; do

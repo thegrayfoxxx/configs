@@ -24,15 +24,19 @@ show_status() {
   printf "  ${CYAN}🛡️  Блокировки (ipset):${NC}\n"
   if command -v ipset >/dev/null 2>&1; then
     if command -v sudo >/dev/null 2>&1; then
-      local entries
-      entries=$(sudo -n ipset list crowdsec-blacklists-0 -t 2>/dev/null \
-        | grep "Number of entries" \
-        | awk '{print $4}')
-      if [ -n "$entries" ]; then
-        log_info "  ✅ IP в блоке: $entries"
+      if ! sudo -n true 2>/dev/null; then
+        log_warn "  ⚠️  Нет прав sudo для ipset (требуется NOPASSWD)"
       else
-        log_warn "  ⚠️  Список crowdsec-blacklists-0 не найден"
-        printf "  Возможно, баунсер ещё не создал его\n"
+        local entries
+        entries=$(sudo -n ipset list crowdsec-blacklists-0 -t 2>/dev/null \
+          | grep "Number of entries" \
+          | awk '{print $4}')
+        if [ -n "$entries" ]; then
+          log_info "  ✅ IP в блоке: $entries"
+        else
+          log_warn "  ⚠️  Список crowdsec-blacklists-0 не найден"
+          printf "  Возможно, баунсер ещё не создал его\n"
+        fi
       fi
     else
       log_warn "  ⚠️  sudo не установлен"
