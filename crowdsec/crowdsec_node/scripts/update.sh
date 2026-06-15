@@ -36,10 +36,9 @@ update_from_repo() {
   fi
 
   printf "  ${CYAN}📋 Обновляю файлы...${NC}\n"
-  cp -n "$TEMP_DIR"/compose-example.yml . 2>/dev/null || true
-  cp -n "$TEMP_DIR"/.env.example . 2>/dev/null || true
-  cp -r "$TEMP_DIR"/config/* config/ 2>/dev/null || true
-  cp -r "$TEMP_DIR"/scripts/* scripts/ 2>/dev/null || true
+  shopt -s dotglob
+  cp -r "$TEMP_DIR"/* . 2>/dev/null || true
+  shopt -u dotglob
 
   chmod +x scripts/*.sh 2>/dev/null || true
 
