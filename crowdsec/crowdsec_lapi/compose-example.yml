@@ -73,6 +73,11 @@ services:
       - INCLUDE_CROWDSEC=true
       - ALERT_LIST_LIMIT=5000
       - CROWDSEC_CONTAINER_NAME=crowdsec-lapi
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health/stack"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - cs-manager-data:/app
