@@ -24,7 +24,7 @@ services:
     networks:
       - crowdsec-net
 
-  crowdsec-bouncer:
+  crowdsec-bouncer: # Закоментировать или удалить все до следующего сервиса если не нужен баунсер
     image: ghcr.io/shgew/cs-firewall-bouncer-docker:latest
     container_name: crowdsec-bouncer
     restart: unless-stopped
@@ -42,7 +42,7 @@ services:
       - ./config/crowdsec-firewall-bouncer.yaml:/config/crowdsec-firewall-bouncer.yaml:ro
       - /etc/localtime:/etc/localtime:ro
 
-  crowdsec-dashboard:
+  crowdsec-dashboard: # Закоментировать или удалить все до следующего сервиса если не нужен дашборд
     image: ghcr.io/theduffman85/crowdsec-web-ui:latest
     container_name: crowdsec-dashboard
     restart: unless-stopped
@@ -56,11 +56,36 @@ services:
       - cs-dashboard-data:/app/data
     networks:
       - crowdsec-net
+    depends_on:
+      - crowdsec-lapi
+
+  crowdsec-manager: # Закоментировать или удалить все до следующего сервиса если не нужен менеджер
+    image: hhftechnology/crowdsec-manager:independent
+    container_name: crowdsec-manager
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8084:8080
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=production
+      - CONFIG_DIR=/app/config
+      - DATABASE_PATH=/app/data/settings.db
+      - INCLUDE_CROWDSEC=true
+      - ALERT_LIST_LIMIT=5000
+      - CROWDSEC_CONTAINER_NAME=crowdsec-lapi
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - cs-manager-data:/app
+    networks:
+      - crowdsec-net
+    depends_on:
+      - crowdsec-lapi
 
 volumes:
   crowdsec-data:
   crowdsec-config:
-  cs-dashboard-data:
+  cs-dashboard-data: # Закоментировать или удалить если не нужен дашборд
+  cs-manager-data: # Закоментировать или удалить если не нужен менеджер
 
 networks:
   crowdsec-net:
