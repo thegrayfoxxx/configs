@@ -27,7 +27,7 @@
 - [Зависимости](#зависимости)
 
 Архитектура разделена на две независимые части:
-- **LAPI** (`crowdsec_lapi/`) — центральный сервер с API, дашбордом и локальным баунсером
+- **LAPI** (`crowdsec_lapi/`) — центральный сервер с API, дашбордом, менеджером и локальным баунсером
 - **Node** (`crowdsec_node/`) — удалённые ноды, агенты которых подключаются к LAPI
 
 ## Используемые образы
@@ -37,6 +37,7 @@
 | LAPI / Agent | [`crowdsecurity/crowdsec`](https://hub.docker.com/r/crowdsecurity/crowdsec) | Docker Hub |
 | Dashboard | [`theduffman85/crowdsec-web-ui`](https://github.com/theduffman85/crowdsec-web-ui) | GitHub Packages |
 | Bouncer | [`shgew/cs-firewall-bouncer-docker`](https://github.com/shgew/cs-firewall-bouncer-docker) | GitHub Packages |
+| Manager | [`hhftechnology/crowdsec-manager`](https://github.com/hhftechnology/crowdsec-manager) | Docker Hub |
 
 ## Схема работы
 
@@ -50,6 +51,7 @@ flowchart TB
         end
         LAPI_CORE --> LAPI_AGENT
         LAPI_CORE ---|внутренняя<br/>сеть| DASH["crowdsec-dashboard<br/>:8083"]
+        LAPI_CORE ---|внутренняя<br/>сеть| MGR["crowdsec-manager<br/>:8084"]
         LAPI_CORE ---|host network| LBOUNCER["crowdsec-bouncer<br/>(локальный)"]
         LAPI_CORE --- VOL[(Volumes)]
         LBOUNCER -->|iptables/nftables| DROP1["Блокировка IP"]
@@ -72,7 +74,7 @@ flowchart TB
 
 ## Порядок настройки
 
-1. **LAPI** — поднять центральный сервер с LAPI, Dashboard и локальным баунсером.
+1. **LAPI** — поднять центральный сервер с LAPI, Dashboard (опционально), Manager (опционально) и локальным баунсером.
 2. **Node** — на каждой удалённой ноде зарегистрировать агента и баунсера на LAPI, развернуть стек.
 
 ---
@@ -82,7 +84,7 @@ flowchart TB
 ```
 crowdsec/
 ├── crowdsec_lapi/                          # LAPI-сервер
-│   ├── compose-example.yml                 # Docker Compose: LAPI + Dashboard + bouncer
+│   ├── compose-example.yml                 # Docker Compose: LAPI + Dashboard + Manager + bouncer
 │   ├── lapi.sh                             # 🧰 главное меню LAPI
 │   ├── config/
 │   │   ├── acquis.yaml                     # настройка источников логов
@@ -110,7 +112,7 @@ crowdsec/
 
 ## 1. LAPI-сервер
 
-На LAPI-сервере запускается LAPI, Dashboard, агент (читает логи самого сервера) и локальный баунсер.
+На LAPI-сервере запускается LAPI, Dashboard, Manager, агент (читает логи самого сервера) и локальный баунсер.
 
 ### Reverse proxy
 
@@ -194,6 +196,20 @@ docker compose up -d
 ```
 
 > **Важно:** у Dashboard нет собственной авторизации. Обязательно ограничь доступ на reverse proxy.
+
+### CrowdSec Manager
+
+[Manager](https://github.com/hhftechnology/crowdsec-manager) — альтернативный веб-интерфейс для управления CrowdSec. Доступен на `127.0.0.1:8084`.
+
+Порты сервисов:
+
+| Сервис | Порт | Описание |
+|---|---|---|
+| LAPI | `127.0.0.1:8082` | API для подключения нод и прокси |
+| Dashboard | `127.0.0.1:8083` | Веб-интерфейс (theduffman85) |
+| Manager | `127.0.0.1:8084` | Альтернативный веб-интерфейс (hhftechnology) |
+
+> Manager и Dashboard — опциональные сервисы. Если они не нужны, закомментируй или удали соответствующие блоки в `compose.yml` и volume.
 
 ### Управление LAPI через скрипт
 
