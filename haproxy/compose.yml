@@ -1,0 +1,35 @@
+services:
+  haproxy-stream:
+    image: haproxy:alpine
+    container_name: haproxy-stream
+    restart: always
+    user: root
+    network_mode: host
+    volumes:
+      - ./stream/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+
+  haproxy-web:
+    image: haproxy:alpine
+    container_name: haproxy-web
+    restart: always
+    network_mode: host
+    volumes:
+      - ./web/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./web/certs:/etc/haproxy/certs:ro
+
+  acme:
+    image: neilpang/acme.sh:latest
+    container_name: acme
+    restart: always
+    network_mode: host
+    command: daemon
+    volumes:
+      - acme:/acme.sh
+      - ./web/certs:/etc/haproxy/certs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DEPLOY_HAPROXY_PEM_PATH=/etc/haproxy/certs
+      - DEPLOY_HAPROXY_RELOAD=curl -s -X POST --unix-socket /var/run/docker.sock http://localhost/containers/haproxy-web/restart
+
+volumes:
+  acme:
