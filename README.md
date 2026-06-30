@@ -8,4 +8,5 @@
 
 ## Сервисы
 
+- [**HAProxy**](haproxy/README.md) — TLS-прокси для маршрутизации трафика по SNI с SSL-терминацией и автоматическим обновлением сертификатов.
 - [**CrowdSec**](crowdsec/README.md) — настройка LAPI и нод CrowdSec в Docker Compose.
