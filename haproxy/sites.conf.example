@@ -1,0 +1,16 @@
+# HAProxy конфигурация
+# Скопируй как sites.conf и отредактируй
+
+ACME_EMAIL="mailname@example.com"
+
+# Сайты (L7, SSL termination через haproxy-web)
+# формат: "домен:порт_бэкенда"
+WEB_SITES=(
+  "site1.com:11443"
+)
+
+# Reality (L4, напрямую на xray)
+# формат: "домены:порт_xray"
+REALITY_SITES=(
+  "google.com www.google.com:10443"
+)
