@@ -31,8 +31,8 @@ haproxy/
 - Слушает `*:443`
 - Инспектирует SNI из ClientHello
 - Если SNI = `google.com` / `www.google.com` → пробрасывает на `127.0.0.1:10443` (xray, L4)
-- Если SNI = `site1.com` → пробрасывает на `127.0.0.1:8443` (haproxy-web, L7 + SSL termination)
-- Всё остальное → blackhole (дроп)
+- Всё остальное → haproxy-web:8443 (L7 + SSL termination)
+- В haproxy-web: известные домены → бэкенды, неизвестные → blackhole (HTTP 403)
 
 ## Подготовка сервера
 
@@ -76,7 +76,7 @@ ENV переменные для deploy hook заданы в compose.yml:
 
 **Конфиги HAProxy:**
 - `stream/haproxy.cfg` — L4 прокси, SNI-маршрутизация на порту 443
-- `web/haproxy.cfg` — веб-сервер, SSL-терминация на порту 8443
+- `web/haproxy.cfg` — веб-сервер, SSL-терминация на порту 8443, маршрутизация по host
 
 **Volumes:**
 - `acme:/acme.sh` — внутренние данные acme.sh (аккаунт, сертификаты)
