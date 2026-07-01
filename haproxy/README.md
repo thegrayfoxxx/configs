@@ -126,6 +126,8 @@ cd haproxy
 2. Если конфигов HAProxy нет — автоматическая генерация
 3. Если `sites.conf` новее конфигов — предложение перегенерировать
 
+Ввод `0` или пустая строка = отмена/назад во всех меню.
+
 ### Шаг 2 — добавь сайт
 
 ```
@@ -337,9 +339,11 @@ REALITY_SITES=(
 
 ### Выпуск сертификата
 
-```bash
-docker compose exec acme acme.sh --issue -d "example.com" --standalone --httpport 80 --email "mailname@example.com"
-```
+При выпуске сертификата (пункты 1 и 3) можно:
+- **Ввести домен вручную**
+- **Выбрать из списка добавленных сайтов** (если сайты уже есть в HAProxy web)
+
+Ввод `0` или пустая строка = отмена.
 
 ### Деплой в HAProxy
 
@@ -469,6 +473,10 @@ backend bk_blackhole
 | `print_header(title, icon)` | Шапка меню в рамке |
 | `print_status_box()` | Блок статуса (контейнеры, конфиги, серты) |
 | `require_cmd(cmd, hint)` | Проверка наличия утилиты |
+| `require_docker()` | Проверка Docker daemon и Docker Compose |
+| `validate_port(port, name)` | Валидация порта (1-65535) |
+| `validate_domain(domain)` | Валидация формата домена |
+| `safe_docker_compose(...)` | Безопасный запуск docker compose с обработкой ошибок |
 | `haproxy_is_running()` | Проверка запущен ли контейнер `haproxy-stream` |
 | `require_haproxy()` | То же, но с `die()` при ошибке |
 | `ensure_sites_conf()` | Проверка наличия `sites.conf`, интерактивное создание |
