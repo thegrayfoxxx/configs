@@ -9,9 +9,14 @@ select_domain() {
 
   if [ ${#WEB_SITES[@]} -gt 0 ]; then
     printf "  ${GREEN}1.${NC} Ввести домен вручную\n" > /dev/tty
-    printf "  ${GREEN}2.${NC} Выбрать из списка сайтов\n\n" > /dev/tty
+    printf "  ${GREEN}2.${NC} Выбрать из списка сайтов\n" > /dev/tty
+    printf "  ${RED}0.${NC} ⬅️  Назад\n\n" > /dev/tty
     printf "${CYAN}👉 Пункт:${NC} " > /dev/tty
     read -r sel < /dev/tty
+
+    if [ "$sel" = "0" ]; then
+      return 1
+    fi
 
     if [ "$sel" = "2" ]; then
       printf "\n  ${CYAN}Доступные сайты:${NC}\n" > /dev/tty
@@ -20,8 +25,12 @@ select_domain() {
         local d="${entry%%:*}"
         printf "  ${GREEN}%d.${NC} %s\n" "$((i+1))" "$d" > /dev/tty
       done
-      printf "\n  ${CYAN}👉 Номер сайта:${NC} " > /dev/tty
+      printf "\n  ${CYAN}👉 Номер сайта (0 - отмена):${NC} " > /dev/tty
       read -r num < /dev/tty
+
+      if [ "$num" = "0" ]; then
+        return 1
+      fi
 
       if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#WEB_SITES[@]} ]; then
         local idx=$((num-1))
@@ -35,9 +44,9 @@ select_domain() {
     fi
   fi
 
-  printf "  ${CYAN}👉 Домен:${NC} " > /dev/tty
+  printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} " > /dev/tty
   read -r domain < /dev/tty
-  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым" > /dev/tty; return 1; }
+  [ -z "$domain" ] && return 1
   if ! validate_domain "$domain"; then
     return 1
   fi
@@ -95,19 +104,21 @@ issue_cert() {
     --httpport 80 \
     --email "$ACME_EMAIL"; then
     log_error "❌ Ошибка выпуска сертификата"
-    return 1
+  else
+    log_info "✅ Сертификат выпущен"
   fi
 
-  log_info "✅ Сертификат выпущен"
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 deploy_cert() {
   clear_screen
   print_header "ДЕПЛОЙ СЕРТИФИКАТА" "🚀"
 
-  printf "  ${CYAN}👉 Домен:${NC} "
+  printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} "
   read -r domain < /dev/tty
-  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
+  [ -z "$domain" ] && return
   if ! validate_domain "$domain"; then
     return
   fi
@@ -116,10 +127,12 @@ deploy_cert() {
     -d "$domain" \
     --deploy-hook haproxy; then
     log_error "❌ Ошибка деплоя сертификата"
-    return 1
+  else
+    log_info "✅ Сертификат задеплоен"
   fi
 
-  log_info "✅ Сертификат задеплоен"
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 issue_and_deploy() {
@@ -142,7 +155,9 @@ issue_and_deploy() {
     --httpport 80 \
     --email "$ACME_EMAIL"; then
     log_error "❌ Ошибка выпуска сертификата"
-    return 1
+    printf "\n"
+    read -p "[Enter]..." < /dev/tty
+    return
   fi
 
   log_info "✅ Сертификат выпущен"
@@ -151,10 +166,12 @@ issue_and_deploy() {
     -d "$domain" \
     --deploy-hook haproxy; then
     log_error "❌ Ошибка деплоя сертификата"
-    return 1
+  else
+    log_info "✅ Сертификат задеплоен"
   fi
 
-  log_info "✅ Сертификат задеплоен"
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 list_certs() {
@@ -220,9 +237,9 @@ remove_cert() {
   clear_screen
   print_header "УДАЛЕНИЕ СЕРТИФИКАТА" "🗑️"
 
-  printf "  ${CYAN}👉 Домен:${NC} "
+  printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} "
   read -r domain < /dev/tty
-  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
+  [ -z "$domain" ] && return
   if ! validate_domain "$domain"; then
     return
   fi
@@ -235,15 +252,18 @@ remove_cert() {
   rm -f "${HAPROXY_DIR}/web/certs/${domain}.pem"
 
   log_info "✅ Сертификат удалён"
+
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 force_renew() {
   clear_screen
   print_header "ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ" "⚡"
 
-  printf "  ${CYAN}👉 Домен:${NC} "
+  printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} "
   read -r domain < /dev/tty
-  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
+  [ -z "$domain" ] && return
   if ! validate_domain "$domain"; then
     return
   fi
@@ -252,7 +272,9 @@ force_renew() {
     -d "$domain" \
     --force; then
     log_error "❌ Ошибка обновления сертификата"
-    return 1
+    printf "\n"
+    read -p "[Enter]..." < /dev/tty
+    return
   fi
 
   log_info "✅ Сертификат обновлён"
@@ -261,10 +283,12 @@ force_renew() {
     -d "$domain" \
     --deploy-hook haproxy; then
     log_error "❌ Ошибка деплоя сертификата"
-    return 1
+  else
+    log_info "✅ Сертификат задеплоен"
   fi
 
-  log_info "✅ Сертификат задеплоен"
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 show_menu
