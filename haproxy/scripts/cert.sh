@@ -8,19 +8,19 @@ select_domain() {
   load_sites
 
   if [ ${#WEB_SITES[@]} -gt 0 ]; then
-    printf "  ${GREEN}1.${NC} Ввести домен вручную\n"
-    printf "  ${GREEN}2.${NC} Выбрать из списка сайтов\n\n"
-    printf "${CYAN}👉 Пункт:${NC} "
+    printf "  ${GREEN}1.${NC} Ввести домен вручную\n" > /dev/tty
+    printf "  ${GREEN}2.${NC} Выбрать из списка сайтов\n\n" > /dev/tty
+    printf "${CYAN}👉 Пункт:${NC} " > /dev/tty
     read -r sel < /dev/tty
 
     if [ "$sel" = "2" ]; then
-      printf "\n  ${CYAN}Доступные сайты:${NC}\n"
+      printf "\n  ${CYAN}Доступные сайты:${NC}\n" > /dev/tty
       for i in "${!WEB_SITES[@]}"; do
         local entry="${WEB_SITES[$i]}"
         local d="${entry%%:*}"
-        printf "  ${GREEN}%d.${NC} %s\n" "$((i+1))" "$d"
+        printf "  ${GREEN}%d.${NC} %s\n" "$((i+1))" "$d" > /dev/tty
       done
-      printf "\n  ${CYAN}👉 Номер сайта:${NC} "
+      printf "\n  ${CYAN}👉 Номер сайта:${NC} " > /dev/tty
       read -r num < /dev/tty
 
       if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#WEB_SITES[@]} ]; then
@@ -29,15 +29,15 @@ select_domain() {
         echo "${entry%%:*}"
         return
       else
-        log_error "❌ Неверный номер"
+        log_error "❌ Неверный номер" > /dev/tty
         return 1
       fi
     fi
   fi
 
-  printf "  ${CYAN}👉 Домен:${NC} "
+  printf "  ${CYAN}👉 Домен:${NC} " > /dev/tty
   read -r domain < /dev/tty
-  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return 1; }
+  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым" > /dev/tty; return 1; }
   if ! validate_domain "$domain"; then
     return 1
   fi
