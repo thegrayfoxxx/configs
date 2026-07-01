@@ -29,7 +29,7 @@ update_from_repo() {
 
   printf "  ${CYAN}📦 Распаковываю...${NC}\n"
   if ! tar xzf "$TMP_ARCHIVE" -C "$TEMP_DIR" \
-    --strip=3 \
+    --strip=2 \
     --wildcards \
     --wildcards-match-slash \
     '*/haproxy/*'; then
