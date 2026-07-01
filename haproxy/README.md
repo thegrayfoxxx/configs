@@ -74,7 +74,7 @@ flowchart TB
 ### Через curl
 
 ```bash
-curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/haproxy'
+curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=1 '*/haproxy'
 cd haproxy
 ```
 
