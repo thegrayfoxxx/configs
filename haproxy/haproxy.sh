@@ -1,5 +1,5 @@
 #!/bin/bash
-set -u
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/scripts/lib/common.sh"
@@ -69,15 +69,18 @@ show_menu() {
       5)
         clear_screen
         print_header "ПЕРЕЗАПУСК СЕРВИСОВ" "🔄"
-        docker compose restart
-        log_info "✅ Сервисы перезапущены"
+        if safe_docker_compose restart; then
+          log_info "✅ Сервисы перезапущены"
+        else
+          log_error "❌ Ошибка перезапуска сервисов"
+        fi
         printf "\n"
         read -p "[Enter]..." < /dev/tty
         ;;
       6)
         clear_screen
         print_header "ЛОГИ" "📋"
-        printf "  ${GREEN}1}.${NC} haproxy-stream\n"
+        printf "  ${GREEN}1.${NC} haproxy-stream\n"
         printf "  ${GREEN}2.${NC} haproxy-web\n"
         printf "  ${GREEN}3.${NC} acme\n"
         printf "  ${RED}0.${NC} Назад\n"
@@ -85,9 +88,27 @@ show_menu() {
         printf "${CYAN}👉 Пункт:${NC} "
         read -r log_choice < /dev/tty
         case "$log_choice" in
-          1) docker logs haproxy-stream --tail 50 -f ;;
-          2) docker logs haproxy-web --tail 50 -f ;;
-          3) docker logs acme --tail 50 -f ;;
+          1)
+            if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-stream'; then
+              log_error "❌ Контейнер haproxy-stream не запущен"
+            else
+              docker logs haproxy-stream --tail 50 -f
+            fi
+            ;;
+          2)
+            if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-web'; then
+              log_error "❌ Контейнер haproxy-web не запущен"
+            else
+              docker logs haproxy-web --tail 50 -f
+            fi
+            ;;
+          3)
+            if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'acme'; then
+              log_error "❌ Контейнер acme не запущен"
+            else
+              docker logs acme --tail 50 -f
+            fi
+            ;;
           0) continue ;;
         esac
         ;;

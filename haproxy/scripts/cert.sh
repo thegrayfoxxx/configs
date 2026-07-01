@@ -1,5 +1,5 @@
 #!/bin/bash
-set -u
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
@@ -42,21 +42,27 @@ issue_cert() {
   printf "  ${CYAN}👉 Домен:${NC} "
   read -r domain < /dev/tty
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
-
-  load_sites
-  if [ -z "$ACME_EMAIL" ]; then
-    printf "  ${CYAN}👉 Email:${NC} "
-    read -r ACME_EMAIL < /dev/tty
+  if ! validate_domain "$domain"; then
+    return
   fi
 
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --issue \
+  load_sites
+  if [ -z "${ACME_EMAIL:-}" ]; then
+    printf "  ${CYAN}👉 Email:${NC} "
+    read -r ACME_EMAIL < /dev/tty
+    [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return; }
+  fi
+
+  if ! safe_docker_compose exec acme acme.sh --issue \
     -d "$domain" \
     --standalone \
     --httpport 80 \
-    --email "$ACME_EMAIL"
+    --email "$ACME_EMAIL"; then
+    log_error "❌ Ошибка выпуска сертификата"
+    return 1
+  fi
 
-  [ $? -eq 0 ] && log_info "✅ Сертификат выпущен" || log_error "❌ Ошибка"
+  log_info "✅ Сертификат выпущен"
 }
 
 deploy_cert() {
@@ -66,13 +72,18 @@ deploy_cert() {
   printf "  ${CYAN}👉 Домен:${NC} "
   read -r domain < /dev/tty
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
+  if ! validate_domain "$domain"; then
+    return
+  fi
 
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --deploy \
+  if ! safe_docker_compose exec acme acme.sh --deploy \
     -d "$domain" \
-    --deploy-hook haproxy
+    --deploy-hook haproxy; then
+    log_error "❌ Ошибка деплоя сертификата"
+    return 1
+  fi
 
-  [ $? -eq 0 ] && log_info "✅ Сертификат задеплоен" || log_error "❌ Ошибка"
+  log_info "✅ Сертификат задеплоен"
 }
 
 issue_and_deploy() {
@@ -82,29 +93,36 @@ issue_and_deploy() {
   printf "  ${CYAN}👉 Домен:${NC} "
   read -r domain < /dev/tty
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
-
-  load_sites
-  if [ -z "$ACME_EMAIL" ]; then
-    printf "  ${CYAN}👉 Email:${NC} "
-    read -r ACME_EMAIL < /dev/tty
+  if ! validate_domain "$domain"; then
+    return
   fi
 
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --issue \
+  load_sites
+  if [ -z "${ACME_EMAIL:-}" ]; then
+    printf "  ${CYAN}👉 Email:${NC} "
+    read -r ACME_EMAIL < /dev/tty
+    [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return; }
+  fi
+
+  if ! safe_docker_compose exec acme acme.sh --issue \
     -d "$domain" \
     --standalone \
     --httpport 80 \
-    --email "$ACME_EMAIL"
-
-  if [ $? -eq 0 ]; then
-    log_info "✅ Сертификат выпущен"
-    docker compose exec acme acme.sh --deploy \
-      -d "$domain" \
-      --deploy-hook haproxy
-    [ $? -eq 0 ] && log_info "✅ Сертификат задеплоен" || log_error "❌ Ошибка деплоя"
-  else
-    log_error "❌ Ошибка выпуска"
+    --email "$ACME_EMAIL"; then
+    log_error "❌ Ошибка выпуска сертификата"
+    return 1
   fi
+
+  log_info "✅ Сертификат выпущен"
+
+  if ! safe_docker_compose exec acme acme.sh --deploy \
+    -d "$domain" \
+    --deploy-hook haproxy; then
+    log_error "❌ Ошибка деплоя сертификата"
+    return 1
+  fi
+
+  log_info "✅ Сертификат задеплоен"
 }
 
 list_certs() {
@@ -155,13 +173,15 @@ remove_cert() {
   printf "  ${CYAN}👉 Домен:${NC} "
   read -r domain < /dev/tty
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
+  if ! validate_domain "$domain"; then
+    return
+  fi
 
   printf "  ${YELLOW}⚠️  Удалить сертификат для ${domain}? [y/N]:${NC} "
   read -r confirm < /dev/tty
   [ "$confirm" != "y" ] && return
 
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --remove -d "$domain"
+  safe_docker_compose exec acme acme.sh --remove -d "$domain" || log_warn "⚠️  Не удалось удалить через acme.sh"
   rm -f "${HAPROXY_DIR}/web/certs/${domain}.pem"
 
   log_info "✅ Сертификат удалён"
@@ -174,21 +194,27 @@ force_renew() {
   printf "  ${CYAN}👉 Домен:${NC} "
   read -r domain < /dev/tty
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
-
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --renew \
-    -d "$domain" \
-    --force
-
-  if [ $? -eq 0 ]; then
-    log_info "✅ Сертификат обновлён"
-    docker compose exec acme acme.sh --deploy \
-      -d "$domain" \
-      --deploy-hook haproxy
-    [ $? -eq 0 ] && log_info "✅ Сертификат задеплоен" || log_error "❌ Ошибка деплоя"
-  else
-    log_error "❌ Ошибка обновления"
+  if ! validate_domain "$domain"; then
+    return
   fi
+
+  if ! safe_docker_compose exec acme acme.sh --renew \
+    -d "$domain" \
+    --force; then
+    log_error "❌ Ошибка обновления сертификата"
+    return 1
+  fi
+
+  log_info "✅ Сертификат обновлён"
+
+  if ! safe_docker_compose exec acme acme.sh --deploy \
+    -d "$domain" \
+    --deploy-hook haproxy; then
+    log_error "❌ Ошибка деплоя сертификата"
+    return 1
+  fi
+
+  log_info "✅ Сертификат задеплоен"
 }
 
 show_menu

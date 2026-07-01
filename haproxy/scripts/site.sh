@@ -1,5 +1,5 @@
 #!/bin/bash
-set -u
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
@@ -38,6 +38,9 @@ add_site() {
   printf "  ${CYAN}👉 Домен (например, example.com):${NC} "
   read -r domain < /dev/tty
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
+  if ! validate_domain "$domain"; then
+    return
+  fi
 
   # Проверяем, не существует ли уже
   for entry in "${WEB_SITES[@]+"${WEB_SITES[@]}"}"; do
@@ -52,6 +55,9 @@ add_site() {
   printf "  ${CYAN}👉 Порт бэкенда (например, 8080):${NC} "
   read -r port < /dev/tty
   [ -z "$port" ] && { log_error "❌ Порт не может быть пустым"; return; }
+  if ! validate_port "$port" "порт бэкенда"; then
+    return
+  fi
 
   # Добавляем в массив
   WEB_SITES+=("${domain}:${port}")
@@ -61,7 +67,10 @@ add_site() {
   log_info "✅ Сайт ${domain} добавлен в sites.conf"
 
   # Генерируем конфиги
-  generate_configs
+  if ! generate_configs; then
+    log_error "❌ Ошибка генерации конфигов"
+    return
+  fi
 
   # Выпускаем сертификат
   printf "\n"
@@ -76,8 +85,11 @@ add_site() {
   printf "  ${CYAN}👉 Перезапустить сервисы? [Y/n]:${NC} "
   read -r restart < /dev/tty
   if [ -z "$restart" ] || [ "$restart" = "Y" ] || [ "$restart" = "y" ]; then
-    docker compose restart
-    log_info "✅ Сервисы перезапущены"
+    if safe_docker_compose restart; then
+      log_info "✅ Сервисы перезапущены"
+    else
+      log_error "❌ Ошибка перезапуска сервисов"
+    fi
   fi
 }
 
@@ -124,7 +136,10 @@ remove_site() {
   log_info "✅ Сайт ${domain} удалён из sites.conf"
 
   # Генерируем конфиги
-  generate_configs
+  if ! generate_configs; then
+    log_error "❌ Ошибка генерации конфигов"
+    return
+  fi
 
   # Удаляем сертификат
   printf "\n"
@@ -139,8 +154,11 @@ remove_site() {
   printf "  ${CYAN}👉 Перезапустить сервисы? [Y/n]:${NC} "
   read -r restart < /dev/tty
   if [ -z "$restart" ] || [ "$restart" = "Y" ] || [ "$restart" = "y" ]; then
-    docker compose restart
-    log_info "✅ Сервисы перезапущены"
+    if safe_docker_compose restart; then
+      log_info "✅ Сервисы перезапущены"
+    else
+      log_error "❌ Ошибка перезапуска сервисов"
+    fi
   fi
 }
 
@@ -173,52 +191,47 @@ issue_certificate() {
   local domain="$1"
   printf "  ${CYAN}📜 Выпускаю сертификат для %s...${NC}\n" "$domain"
 
-  if [ -z "$ACME_EMAIL" ]; then
+  if [ -z "${ACME_EMAIL:-}" ]; then
     printf "  ${CYAN}👉 Email для сертификата:${NC} "
     read -r ACME_EMAIL < /dev/tty
+    [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return 1; }
   fi
 
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --issue \
+  if ! safe_docker_compose exec acme acme.sh --issue \
     -d "$domain" \
     --standalone \
     --httpport 80 \
     --email "$ACME_EMAIL" \
-    --force
-
-  if [ $? -eq 0 ]; then
-    log_info "  ✅ Сертификат выпущен"
-    deploy_certificate "$domain"
-  else
+    --force; then
     log_error "  ❌ Ошибка выпуска сертификата"
+    return 1
   fi
+
+  log_info "  ✅ Сертификат выпущен"
+  deploy_certificate "$domain"
 }
 
 deploy_certificate() {
   local domain="$1"
   printf "  ${CYAN}🚀 Деплою сертификат для %s...${NC}\n" "$domain"
 
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --deploy \
+  if ! safe_docker_compose exec acme acme.sh --deploy \
     -d "$domain" \
-    --deploy-hook haproxy
-
-  if [ $? -eq 0 ]; then
-    log_info "  ✅ Сертификат задеплоен"
-  else
+    --deploy-hook haproxy; then
     log_error "  ❌ Ошибка деплоя сертификата"
+    return 1
   fi
+
+  log_info "  ✅ Сертификат задеплоен"
 }
 
 remove_certificate() {
   local domain="$1"
   printf "  ${CYAN}🗑️  Удаляю сертификат для %s...${NC}\n" "$domain"
 
-  cd "$HAPROXY_DIR"
-  docker compose exec acme acme.sh --remove \
-    -d "$domain"
+  safe_docker_compose exec acme acme.sh --remove \
+    -d "$domain" || log_warn "  ⚠️  Не удалось удалить через acme.sh"
 
-  # Удаляем PEM файл
   rm -f "${HAPROXY_DIR}/web/certs/${domain}.pem"
 
   log_info "  ✅ Сертификат удалён"

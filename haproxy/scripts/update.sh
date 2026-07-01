@@ -1,6 +1,5 @@
 #!/bin/bash
-set -u
-set -o pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
@@ -8,15 +7,20 @@ source "${SCRIPT_DIR}/lib/common.sh"
 TMP_ARCHIVE="/tmp/haproxy.tar.gz"
 TEMP_DIR="/tmp/haproxy-update"
 
+cleanup() {
+  rm -f "$TMP_ARCHIVE" 2>/dev/null || true
+  rm -rf "$TEMP_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 update_from_repo() {
-  cd "$HAPROXY_DIR"
+  cd "$HAPROXY_DIR" || die "❌ Не удалось перейти в ${HAPROXY_DIR}"
 
   clear_screen
   print_header "ОБНОВЛЕНИЕ КОНФИГОВ" "🔄"
 
   printf "  ${CYAN}📥 Скачиваю свежие конфиги...${NC}\n"
   if ! curl -fsSL https://github.com/thegrayfoxxx/configs/archive/main.tar.gz -o "$TMP_ARCHIVE"; then
-    printf "\n"
     die "❌ Ошибка скачивания. Проверь интернет."
   fi
 
@@ -29,22 +33,19 @@ update_from_repo() {
     --wildcards \
     --wildcards-match-slash \
     '*/haproxy/*'; then
-    printf "\n"
-    rm -f "$TMP_ARCHIVE"
-    rm -rf "$TEMP_DIR"
     die "❌ Ошибка распаковки архива."
   fi
 
   printf "  ${CYAN}📋 Обновляю файлы...${NC}\n"
   shopt -s dotglob
-  cp -r "$TEMP_DIR"/* . 2>/dev/null || true
+  if ! cp -r "$TEMP_DIR"/* .; then
+    log_error "❌ Ошибка копирования файлов"
+    return 1
+  fi
   shopt -u dotglob
 
   chmod +x scripts/*.sh 2>/dev/null || true
   chmod +x haproxy.sh 2>/dev/null || true
-
-  rm -f "$TMP_ARCHIVE"
-  rm -rf "$TEMP_DIR"
 
   printf "\n"
   log_info "  ✅ Готово"

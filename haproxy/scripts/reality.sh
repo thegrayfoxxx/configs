@@ -1,5 +1,5 @@
 #!/bin/bash
-set -u
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
@@ -38,6 +38,13 @@ add_reality() {
   read -r domains < /dev/tty
   [ -z "$domains" ] && { log_error "❌ Домены не могут быть пустыми"; return; }
 
+  # Валидируем каждый домен
+  for d in $domains; do
+    if ! validate_domain "$d"; then
+      return
+    fi
+  done
+
   # Проверяем, не существует ли уже
   for entry in "${REALITY_SITES[@]+"${REALITY_SITES[@]}"}"; do
     local existing="${entry%%:*}"
@@ -51,6 +58,9 @@ add_reality() {
   printf "  ${CYAN}👉 Порт xray reality (по умолчанию 10443):${NC} "
   read -r port < /dev/tty
   [ -z "$port" ] && port="10443"
+  if ! validate_port "$port" "порт xray"; then
+    return
+  fi
 
   # Добавляем в массив
   REALITY_SITES+=("${domains}:${port}")
@@ -60,15 +70,21 @@ add_reality() {
   log_info "✅ Reality добавлен в sites.conf"
 
   # Генерируем конфиги
-  generate_configs
+  if ! generate_configs; then
+    log_error "❌ Ошибка генерации конфигов"
+    return
+  fi
 
   # Перезапускаем сервисы
   printf "\n"
   printf "  ${CYAN}👉 Перезапустить сервисы? [Y/n]:${NC} "
   read -r restart < /dev/tty
   if [ -z "$restart" ] || [ "$restart" = "Y" ] || [ "$restart" = "y" ]; then
-    docker compose restart
-    log_info "✅ Сервисы перезапущены"
+    if safe_docker_compose restart; then
+      log_info "✅ Сервисы перезапущены"
+    else
+      log_error "❌ Ошибка перезапуска сервисов"
+    fi
   fi
 }
 
@@ -115,15 +131,21 @@ remove_reality() {
   log_info "✅ Reality для ${domains} удалён из sites.conf"
 
   # Генерируем конфиги
-  generate_configs
+  if ! generate_configs; then
+    log_error "❌ Ошибка генерации конфигов"
+    return
+  fi
 
   # Перезапускаем сервисы
   printf "\n"
   printf "  ${CYAN}👉 Перезапустить сервисы? [Y/n]:${NC} "
   read -r restart < /dev/tty
   if [ -z "$restart" ] || [ "$restart" = "Y" ] || [ "$restart" = "y" ]; then
-    docker compose restart
-    log_info "✅ Сервисы перезапущены"
+    if safe_docker_compose restart; then
+      log_info "✅ Сервисы перезапущены"
+    else
+      log_error "❌ Ошибка перезапуска сервисов"
+    fi
   fi
 }
 

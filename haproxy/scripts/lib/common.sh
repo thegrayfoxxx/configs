@@ -1,5 +1,6 @@
 #!/bin/bash
 # shellcheck shell=bash
+set -euo pipefail
 # Общие утилиты для скриптов HAProxy Manager
 
 # --- ЦВЕТА ---
@@ -47,9 +48,11 @@ print_status_box() {
   local stream_status="$red_off"
   local web_status="$red_off"
   local acme_status="$red_off"
-  docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-stream' && stream_status="$green_on"
-  docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-web' && web_status="$green_on"
-  docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'acme' && acme_status="$green_on"
+  local containers
+  containers=$(docker ps --format '{{.Names}}' 2>/dev/null || true)
+  echo "$containers" | grep -q 'haproxy-stream' && stream_status="$green_on" || true
+  echo "$containers" | grep -q 'haproxy-web' && web_status="$green_on" || true
+  echo "$containers" | grep -q 'acme' && acme_status="$green_on" || true
 
   # Сайты и Reality
   local site_count=0
@@ -126,14 +129,49 @@ require_cmd() {
   fi
 }
 
+# --- ВАЛИДАЦИЯ ---
+validate_port() {
+  local port="$1"
+  local name="${2:-порт}"
+  if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    log_error "❌ Некорректный ${name}: ${port} (допустимо 1-65535)"
+    return 1
+  fi
+}
+
+validate_domain() {
+  local domain="$1"
+  if [[ ! "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ]]; then
+    log_error "❌ Некорректный домен: ${domain}"
+    return 1
+  fi
+}
+
+require_docker() {
+  require_cmd docker "Установи: https://docs.docker.com/engine/install/"
+  if ! docker info >/dev/null 2>&1; then
+    die "❌ Docker daemon не запущен или нет доступа. Запусти: sudo systemctl start docker"
+  fi
+  require_cmd docker compose "Установи Docker Compose plugin"
+}
+
 # --- ПРОВЕРКА КОНТЕЙНЕРОВ ---
 haproxy_is_running() {
-  docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-stream'
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-stream' || return 1
 }
 
 require_haproxy() {
   if ! haproxy_is_running; then
     log_error "❌ Контейнеры HAProxy не запущены. Сначала: docker compose up -d"
+    return 1
+  fi
+}
+
+# --- БЕЗОПАСНЫЙ DOCKER COMPOSE ---
+safe_docker_compose() {
+  cd "$HAPROXY_DIR" || die "❌ Не удалось перейти в ${HAPROXY_DIR}"
+  if ! docker compose "$@"; then
+    log_error "❌ docker compose ${1*} завершился с ошибкой"
     return 1
   fi
 }
@@ -272,7 +310,11 @@ interactive_setup() {
 
 load_sites() {
   ensure_sites_conf
-  source "$SITES_CONF"
+  WEB_SITES=()
+  REALITY_SITES=()
+  if ! source "$SITES_CONF"; then
+    die "❌ Ошибка чтения ${SITES_CONF}. Проверь синтаксис файла."
+  fi
 }
 
 save_sites() {
@@ -410,11 +452,21 @@ generate_configs() {
   if [ -f "$SITES_CONF" ]; then
     WEB_SITES=()
     REALITY_SITES=()
-    source "$SITES_CONF" 2>/dev/null
+    if ! source "$SITES_CONF" 2>/dev/null; then
+      log_error "  ❌ Ошибка чтения ${SITES_CONF}"
+      return 1
+    fi
   fi
 
-  generate_stream_config > "${HAPROXY_DIR}/stream/haproxy.cfg"
-  generate_web_config > "${HAPROXY_DIR}/web/haproxy.cfg"
+  if ! generate_stream_config > "${HAPROXY_DIR}/stream/haproxy.cfg"; then
+    log_error "  ❌ Ошибка генерации stream/haproxy.cfg"
+    return 1
+  fi
+
+  if ! generate_web_config > "${HAPROXY_DIR}/web/haproxy.cfg"; then
+    log_error "  ❌ Ошибка генерации web/haproxy.cfg"
+    return 1
+  fi
 
   log_info "  ✅ Конфиги обновлены"
 }
