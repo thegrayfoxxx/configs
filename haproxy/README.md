@@ -8,8 +8,8 @@ TLS-прокси для маршрутизации трафика по SNI.
 haproxy/
 ├── haproxy.sh              # главное меню
 ├── compose.yml
-├── sites.conf              # конфигурация (создать из sites.conf.example)
-├── sites.conf.example      # шаблон конфигурации
+├── sites.conf              # конфигурация
+├── sites.conf.example      # шаблон
 ├── stream/
 │   ├── haproxy.cfg         # генерируется из sites.conf
 │   └── haproxy.cfg.example # шаблон
@@ -32,14 +32,18 @@ cd haproxy
 ./haproxy.sh
 ```
 
-При первом запуске скрипт интерактивно создаст `sites.conf`:
+При первом запуске:
+1. Если `sites.conf` нет — интерактивная настройка
+2. Если конфигов HAProxy нет — автоматическая генерация
+3. Если `sites.conf` новее конфигов — предложение перегенерировать
 
 ## Меню haproxy.sh
 
 В шапке отображается статус:
 - Контейнеры (stream / web / acme)
 - Количество сайтов и reality
-- Количество сертификатов и сроки истечения
+- Статус конфигов HAProxy (ок / устарели / нет конфигов)
+- Количество сертификатов
 
 | Пункт | Действие |
 |-------|----------|
@@ -50,6 +54,7 @@ cd haproxy
 | `5` | Перезапустить все сервисы |
 | `6` | Логи |
 | `7` | Обновить конфиги из репозитория |
+| `8` | Перегенерировать конфиги HAProxy |
 
 ## Сервисы
 
@@ -67,7 +72,7 @@ cd haproxy
 
 - Слушает `*:443`
 - Инспектирует SNI из ClientHello
-- Если SNI = `google.com` / `www.google.com` → пробрасывает на `127.0.0.1:10443` (xray, L4)
+- Если SNI = reality-домены → пробрасывает на xray (L4)
 - Всё остальное → haproxy-web:8443 (L7 + SSL termination)
 - В haproxy-web: известные домены → бэкенды, неизвестные → blackhole (HTTP 403)
 
@@ -81,39 +86,11 @@ HAProxy запущен от root в контейнере (`user: root` в compos
 sysctl -w net.ipv4.ip_unprivileged_port_start=443
 ```
 
-## Запуск
-
-```bash
-docker compose up -d
-```
-
-## Получение сертификата
-
-Из директории `haproxy/`:
-
-Выпуск сертификата:
-
-```bash
-docker compose exec acme acme.sh --issue -d "example.com" --standalone --httpport 80 --email "mailname@example.com"
-```
-
-Деплой в HAProxy (объединяет key + fullchain в один PEM):
-
-```bash
-docker compose exec acme acme.sh --deploy -d "example.com" --deploy-hook haproxy
-```
-
-ENV переменные для deploy hook заданы в compose.yml:
-- `DEPLOY_HAPROXY_PEM_PATH=/etc/haproxy/certs` — путь для PEM-файлов
-- `DEPLOY_HAPROXY_RELOAD` — перезапуск haproxy-web через Docker socket API
-
-При автоматическом обновлении (каждые 30 дней) deploy выполнится автоматически.
-
 ## Конфигурация
 
 ### sites.conf
 
-Конфигурация хранится в `sites.conf`. Конфиги HAProxy генерируются автоматически при добавлении/удалении сайтов и reality.
+Конфигурация хранится в `sites.conf`. Конфиги HAProxy генерируются автоматически.
 
 ```bash
 ACME_EMAIL="mailname@example.com"
@@ -136,38 +113,10 @@ REALITY_SITES=(
 - `web/haproxy.cfg` — генерируется из `sites.conf`
 - `*.example` — шаблоны для справки
 
-### Управление сайтами
-
-```bash
-./haproxy.sh  # → пункт 1
-```
-
-При добавлении сайта автоматически:
-1. Обновляется `sites.conf`
-2. Генерируются `stream/haproxy.cfg` и `web/haproxy.cfg`
-3. Выпускается SSL-сертификат
-4. Деплой сертификата в HAProxy
-5. Перезапуск сервисов
-
-### Управление Reality
-
-```bash
-./haproxy.sh  # → пункт 2
-```
-
-При добавлении reality автоматически:
-1. Обновляется `sites.conf`
-2. Генерируются `stream/haproxy.cfg` и `web/haproxy.cfg`
-3. Перезапуск сервисов
-
 ### Volumes
 
-- `acme:/acme.sh` — внутренние данные acme.sh (аккаунт, сертификаты)
+- `acme:/acme.sh` — внутренние данные acme.sh
 - `./web/certs:/etc/haproxy/certs` — выпущенные сертификаты (PEM-файлы)
-
-### Сеть
-
-Все сервисы используют `network_mode: host`
 
 ### ENV для acme
 

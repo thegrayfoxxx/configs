@@ -135,6 +135,7 @@ list_reality() {
 
   if [ ${#REALITY_SITES[@]} -eq 0 ]; then
     log_warn "⚠️  Reality нет"
+    read -p "[Enter]..." < /dev/tty
     return
   fi
 
@@ -146,6 +147,9 @@ list_reality() {
     local port="${entry##*:}"
     printf "  %-40s %s\n" "$domains" "$port"
   done
+
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 show_menu

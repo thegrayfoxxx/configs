@@ -152,6 +152,7 @@ list_sites() {
 
   if [ ${#WEB_SITES[@]} -eq 0 ]; then
     log_warn "⚠️  Сайтов нет"
+    read -p "[Enter]..." < /dev/tty
     return
   fi
 
@@ -163,6 +164,9 @@ list_sites() {
     local port="${entry##*:}"
     printf "  %-30s %s\n" "$domain" "$port"
   done
+
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 issue_certificate() {

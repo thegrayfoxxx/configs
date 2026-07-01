@@ -29,15 +29,13 @@ die()       { log_error "$*"; exit 1; }
 print_header() {
   local title="$1"
   local icon="${2:-}"
+  printf "${CYAN}┌─────────────────────────────────────────────┐${NC}\n"
   if [ -n "$icon" ]; then
-    printf "${CYAN}┌─────────────────────────────────────────────┐${NC}\n"
     printf "${CYAN}│${NC}  ${icon}  %s\n" "$title"
-    printf "${CYAN}└─────────────────────────────────────────────┘${NC}\n"
   else
-    printf "${CYAN}┌─────────────────────────────────────────────┐${NC}\n"
     printf "${CYAN}│${NC}  %s\n" "$title"
-    printf "${CYAN}└─────────────────────────────────────────────┘${NC}\n"
   fi
+  printf "${CYAN}└─────────────────────────────────────────────┘${NC}\n"
   printf "\n"
 }
 
@@ -85,6 +83,27 @@ print_status_box() {
   printf "${CYAN}┌─────────────────────────────────────────────┐${NC}\n"
   printf "${CYAN}│${NC}  Сервисы: %b stream  %b web  %b acme\n" "$stream_status" "$web_status" "$acme_status"
   printf "${CYAN}│${NC}  Конфиг:  ${GREEN}%d${NC} сайтов  ${GREEN}%d${NC} reality\n" "$site_count" "$reality_count"
+
+  # Статус конфигов HAProxy
+  local stream_cfg="${HAPROXY_DIR}/stream/haproxy.cfg"
+  local web_cfg="${HAPROXY_DIR}/web/haproxy.cfg"
+  if [ -f "$stream_cfg" ] && [ -f "$web_cfg" ]; then
+    if [ -f "$SITES_CONF" ]; then
+      local sites_time=$(stat -c %Y "$SITES_CONF" 2>/dev/null || echo 0)
+      local stream_time=$(stat -c %Y "$stream_cfg" 2>/dev/null || echo 0)
+      local web_time=$(stat -c %Y "$web_cfg" 2>/dev/null || echo 0)
+      if [ "$sites_time" -gt "$stream_time" ] || [ "$sites_time" -gt "$web_time" ]; then
+        printf "${CYAN}│${NC}  HAProxy:  ${YELLOW}устарели${NC}\n"
+      else
+        printf "${CYAN}│${NC}  HAProxy:  ${GREEN}ок${NC}\n"
+      fi
+    else
+      printf "${CYAN}│${NC}  HAProxy:  ${GREEN}ок${NC}\n"
+    fi
+  else
+    printf "${CYAN}│${NC}  HAProxy:  ${RED}нет конфигов${NC}\n"
+  fi
+
   if [ $cert_count -gt 0 ]; then
     printf "${CYAN}│${NC}  Серты:   ${GREEN}%d${NC}\n" "$cert_count"
   else
@@ -135,6 +154,42 @@ ensure_sites_conf() {
 
   if [ "$setup_choice" = "1" ]; then
     interactive_setup
+  fi
+}
+
+ensure_configs() {
+  local stream_cfg="${HAPROXY_DIR}/stream/haproxy.cfg"
+  local web_cfg="${HAPROXY_DIR}/web/haproxy.cfg"
+
+  # Если конфигов нет — генерируем
+  if [ ! -f "$stream_cfg" ] || [ ! -f "$web_cfg" ]; then
+    printf "  ${YELLOW}⚠  Конфиги HAProxy не найдены.${NC}\n"
+    printf "  ${GREEN}1.${NC} Сгенерировать\n"
+    printf "  ${RED}2.${NC} Пропустить\n\n"
+    printf "${CYAN}👉 Пункт:${NC} "
+    read -r gen_choice < /dev/tty
+    if [ "$gen_choice" = "1" ]; then
+      generate_configs
+    fi
+    return
+  fi
+
+  # Если конфиги есть — проверяем дату
+  if [ -f "$SITES_CONF" ]; then
+    local sites_time=$(stat -c %Y "$SITES_CONF" 2>/dev/null || echo 0)
+    local stream_time=$(stat -c %Y "$stream_cfg" 2>/dev/null || echo 0)
+    local web_time=$(stat -c %Y "$web_cfg" 2>/dev/null || echo 0)
+
+    if [ "$sites_time" -gt "$stream_time" ] || [ "$sites_time" -gt "$web_time" ]; then
+      printf "  ${YELLOW}⚠  sites.conf новее конфигов HAProxy.${NC}\n"
+      printf "  ${GREEN}1.${NC} Перегенерировать\n"
+      printf "  ${RED}2.${NC} Пропустить\n\n"
+      printf "${CYAN}👉 Пункт:${NC} "
+      read -r regen_choice < /dev/tty
+      if [ "$regen_choice" = "1" ]; then
+        generate_configs
+      fi
+    fi
   fi
 }
 
@@ -201,6 +256,15 @@ interactive_setup() {
 
   printf "\n"
   log_info "  ✓ sites.conf создан"
+
+  # Генерируем конфиги если есть данные
+  if [ ${#web_sites[@]} -gt 0 ] || [ -n "$reality_domains" ]; then
+    WEB_SITES=("${web_sites[@]+"${web_sites[@]}"}")
+    REALITY_SITES=()
+    [ -n "$reality_domains" ] && REALITY_SITES+=("${reality_domains}:${reality_port}")
+    generate_configs
+  fi
+
   log_warn "  ⚠  Проверь: ${CYAN}${SITES_CONF}${NC}"
   printf "\n"
   read -p "[Enter] для продолжения..." < /dev/tty
@@ -341,6 +405,13 @@ EOF
 
 generate_configs() {
   printf "  ${CYAN}📝 Генерирую конфиги...${NC}\n"
+
+  # Загружаем данные из sites.conf
+  if [ -f "$SITES_CONF" ]; then
+    WEB_SITES=()
+    REALITY_SITES=()
+    source "$SITES_CONF" 2>/dev/null
+  fi
 
   generate_stream_config > "${HAPROXY_DIR}/stream/haproxy.cfg"
   generate_web_config > "${HAPROXY_DIR}/web/haproxy.cfg"

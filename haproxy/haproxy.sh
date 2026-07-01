@@ -9,6 +9,9 @@ SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 # Проверяем sites.conf при запуске
 ensure_sites_conf
 
+# Проверяем конфиги HAProxy
+ensure_configs
+
 show_menu() {
   trap 'exit 0' INT
   while true; do
@@ -22,6 +25,7 @@ show_menu() {
     printf "  ${GREEN}5.${NC} 🔄 Перезапустить все сервисы\n"
     printf "  ${GREEN}6.${NC} 📋 Логи\n"
     printf "  ${GREEN}7.${NC} ⬇️  Обновить конфиги из репозитория\n"
+    printf "  ${GREEN}8.${NC} 📝 Перегенерировать конфиги\n"
     printf "  ${RED}0.${NC} ❌ Выход\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
@@ -73,7 +77,7 @@ show_menu() {
       6)
         clear_screen
         print_header "ЛОГИ" "📋"
-        printf "  ${GREEN}1.${NC} haproxy-stream\n"
+        printf "  ${GREEN}1}.${NC} haproxy-stream\n"
         printf "  ${GREEN}2.${NC} haproxy-web\n"
         printf "  ${GREEN}3.${NC} acme\n"
         printf "  ${RED}0.${NC} Назад\n"
@@ -95,6 +99,15 @@ show_menu() {
           log_error "❌ update.sh не найден"
         fi
         printf "\n"
+        read -p "[Enter]..." < /dev/tty
+        ;;
+      8)
+        if [ -f "$SITES_CONF" ]; then
+          load_sites
+          generate_configs
+        else
+          log_error "❌ sites.conf не найден"
+        fi
         read -p "[Enter]..." < /dev/tty
         ;;
       0) exit 0 ;;
