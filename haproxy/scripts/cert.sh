@@ -4,6 +4,46 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
+select_domain() {
+  load_sites
+
+  if [ ${#WEB_SITES[@]} -gt 0 ]; then
+    printf "  ${GREEN}1.${NC} Ввести домен вручную\n"
+    printf "  ${GREEN}2.${NC} Выбрать из списка сайтов\n\n"
+    printf "${CYAN}👉 Пункт:${NC} "
+    read -r sel < /dev/tty
+
+    if [ "$sel" = "2" ]; then
+      printf "\n  ${CYAN}Доступные сайты:${NC}\n"
+      for i in "${!WEB_SITES[@]}"; do
+        local entry="${WEB_SITES[$i]}"
+        local d="${entry%%:*}"
+        printf "  ${GREEN}%d.${NC} %s\n" "$((i+1))" "$d"
+      done
+      printf "\n  ${CYAN}👉 Номер сайта:${NC} "
+      read -r num < /dev/tty
+
+      if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#WEB_SITES[@]} ]; then
+        local idx=$((num-1))
+        local entry="${WEB_SITES[$idx]}"
+        echo "${entry%%:*}"
+        return
+      else
+        log_error "❌ Неверный номер"
+        return 1
+      fi
+    fi
+  fi
+
+  printf "  ${CYAN}👉 Домен:${NC} "
+  read -r domain < /dev/tty
+  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return 1; }
+  if ! validate_domain "$domain"; then
+    return 1
+  fi
+  echo "$domain"
+}
+
 show_menu() {
   trap 'exit 0' INT
   while true; do
@@ -39,12 +79,8 @@ issue_cert() {
   clear_screen
   print_header "ВЫПУСК СЕРТИФИКАТА" "📜"
 
-  printf "  ${CYAN}👉 Домен:${NC} "
-  read -r domain < /dev/tty
-  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
-  if ! validate_domain "$domain"; then
-    return
-  fi
+  local domain
+  domain=$(select_domain) || return
 
   load_sites
   if [ -z "${ACME_EMAIL:-}" ]; then
@@ -90,12 +126,8 @@ issue_and_deploy() {
   clear_screen
   print_header "ВЫПУСК + ДЕПЛОЙ" "🔄"
 
-  printf "  ${CYAN}👉 Домен:${NC} "
-  read -r domain < /dev/tty
-  [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
-  if ! validate_domain "$domain"; then
-    return
-  fi
+  local domain
+  domain=$(select_domain) || return
 
   load_sites
   if [ -z "${ACME_EMAIL:-}" ]; then
