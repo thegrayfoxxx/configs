@@ -62,7 +62,9 @@ show_menu() {
       4)
         clear_screen
         print_header "СТАТУС СЕРВИСОВ" "📊"
-        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=haproxy" --filter "name=acme" 2>/dev/null
+        if ! docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=haproxy" --filter "name=acme" 2>/dev/null; then
+          log_error "❌ Не удалось получить статус. Проверь Docker."
+        fi
         printf "\n"
         read -p "[Enter]..." < /dev/tty
         ;;

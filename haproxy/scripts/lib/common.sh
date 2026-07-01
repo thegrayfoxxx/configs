@@ -69,8 +69,8 @@ print_status_box() {
   local cert_count=0
   local cert_info=""
   if [ -d "${HAPROXY_DIR}/web/certs" ]; then
+    shopt -s nullglob
     for pem in "${HAPROXY_DIR}/web/certs"/*.pem; do
-      [ -f "$pem" ] || continue
       cert_count=$((cert_count + 1))
       local expiry=$(openssl x509 -in "$pem" -noout -enddate 2>/dev/null | cut -d= -f2)
       local expiry_epoch=$(date -d "$expiry" +%s 2>/dev/null || echo 0)
@@ -80,6 +80,7 @@ print_status_box() {
         cert_info="${YELLOW}⚠ $(basename "$pem" .pem) истекает через ${days_left}d${NC}"
       fi
     done
+    shopt -u nullglob
   fi
 
   # Рисуем рамку
@@ -237,8 +238,14 @@ interactive_setup() {
   printf "  ${YELLOW}Файл sites.conf не найден. Создадим его.${NC}\n\n"
 
   # Email
-  printf "  ${CYAN}📧 Email для сертификатов:${NC} "
-  read -r acme_email < /dev/tty
+  while true; do
+    printf "  ${CYAN}📧 Email для сертификатов:${NC} "
+    read -r acme_email < /dev/tty
+    if [ -n "$acme_email" ] && [[ "$acme_email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+      break
+    fi
+    printf "  ${RED}   ✗ Введи корректный email (например, user@example.com)${NC}\n"
+  done
 
   # Reality
   printf "\n  ${CYAN}🔐 Reality (xray)${NC}\n"
@@ -247,9 +254,14 @@ interactive_setup() {
 
   local reality_port="10443"
   if [ -n "$reality_domains" ]; then
-    printf "  ${CYAN}   Порт [10443]:${NC} "
-    read -r reality_port < /dev/tty
-    [ -z "$reality_port" ] && reality_port="10443"
+    while true; do
+      printf "  ${CYAN}   Порт [10443]:${NC} "
+      read -r reality_port < /dev/tty
+      [ -z "$reality_port" ] && reality_port="10443"
+      if validate_port "$reality_port" "порт xray" 2>/dev/null; then
+        break
+      fi
+    done
   fi
 
   # Web sites
@@ -260,12 +272,22 @@ interactive_setup() {
     read -r domain < /dev/tty
     [ -z "$domain" ] && break
 
-    printf "  ${CYAN}   Порт бэкенда:${NC} "
-    read -r port < /dev/tty
-    if [ -z "$port" ]; then
-      printf "  ${RED}   ✗ Порт обязателен${NC}\n"
+    if ! validate_domain "$domain" 2>/dev/null; then
       continue
     fi
+
+    while true; do
+      printf "  ${CYAN}   Порт бэкенда:${NC} "
+      read -r port < /dev/tty
+      if [ -z "$port" ]; then
+        printf "  ${RED}   ✗ Порт обязателен${NC}\n"
+        continue
+      fi
+      if validate_port "$port" "порт бэкенда" 2>/dev/null; then
+        break
+      fi
+    done
+
     web_sites+=("${domain}:${port}")
     printf "  ${GREEN}   ✓ %s → :%s${NC}\n" "$domain" "$port"
   done

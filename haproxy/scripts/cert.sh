@@ -133,19 +133,27 @@ list_certs() {
 
   if [ ! -d "${HAPROXY_DIR}/web/certs" ]; then
     log_warn "⚠️  Директория web/certs не существует"
+    printf "\n"
+    read -p "[Enter]..." < /dev/tty
     return
   fi
 
   local count=0
+  shopt -s nullglob
   for pem in "${HAPROXY_DIR}/web/certs"/*.pem; do
-    [ -f "$pem" ] || continue
     local name=$(basename "$pem" .pem)
     local expiry=$(openssl x509 -in "$pem" -noout -enddate 2>/dev/null | cut -d= -f2)
     printf "  ${GREEN}•${NC} %-35s до %s\n" "$name" "$expiry"
     count=$((count + 1))
   done
+  shopt -u nullglob
 
-  [ $count -eq 0 ] && log_warn "⚠️  Сертификатов нет"
+  if [ $count -eq 0 ]; then
+    log_warn "⚠️  Сертификатов нет"
+  fi
+
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 inspect_cert() {
@@ -155,15 +163,25 @@ inspect_cert() {
   printf "  ${CYAN}👉 Домен:${NC} "
   read -r domain < /dev/tty
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
+  if ! validate_domain "$domain"; then
+    return
+  fi
 
   local pem="${HAPROXY_DIR}/web/certs/${domain}.pem"
   if [ ! -f "$pem" ]; then
     log_error "❌ PEM-файл не найден: ${pem}"
+    printf "\n"
+    read -p "[Enter]..." < /dev/tty
     return
   fi
 
   printf "\n"
-  openssl x509 -in "$pem" -noout -subject -issuer -dates
+  if ! openssl x509 -in "$pem" -noout -subject -issuer -dates; then
+    log_error "❌ Ошибка чтения сертификата"
+  fi
+
+  printf "\n"
+  read -p "[Enter]..." < /dev/tty
 }
 
 remove_cert() {
