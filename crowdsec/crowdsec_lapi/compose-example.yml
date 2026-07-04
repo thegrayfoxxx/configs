@@ -54,6 +54,7 @@ services:
       - CROWDSEC_USER=${CROWDSEC_USER} # Изменить в .env
       - CROWDSEC_PASSWORD=${CROWDSEC_PASSWORD} # Изменить в .env
       - CROWDSEC_PROMETHEUS_URL=http://crowdsec-lapi:${METRICS_PORT}/metrics
+      - AUTH_ENABLED=true
     volumes:
       - cs-dashboard-data:/app/data
     networks:
