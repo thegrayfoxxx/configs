@@ -98,6 +98,8 @@ issue_cert() {
     [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return; }
   fi
 
+  require_port_free 80 "standalone-выпуск слушает :80" || return
+
   if ! safe_docker_compose exec acme acme.sh --issue \
     -d "$domain" \
     --standalone \
@@ -148,6 +150,8 @@ issue_and_deploy() {
     read -r ACME_EMAIL < /dev/tty
     [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return; }
   fi
+
+  require_port_free 80 "standalone-выпуск слушает :80" || return
 
   if ! safe_docker_compose exec acme acme.sh --issue \
     -d "$domain" \

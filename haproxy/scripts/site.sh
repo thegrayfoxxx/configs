@@ -197,6 +197,8 @@ issue_certificate() {
     [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return 1; }
   fi
 
+  require_port_free 80 "standalone-выпуск слушает :80" || return 1
+
   if ! safe_docker_compose exec acme acme.sh --issue \
     -d "$domain" \
     --standalone \

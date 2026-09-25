@@ -31,9 +31,11 @@ clear_screen() {
 }
 
 # --- ЛОГГЕРЫ ---
+# Волна 3: warn/error идут в stderr. Это критично: генераторы пишут stdout
+# в файл конфига, и любая диагностика внутри них иначе отравила бы конфиг.
 log_info()  { printf "${GREEN}%s${NC}\n" "$*"; }
-log_warn()  { printf "${YELLOW}%s${NC}\n" "$*"; }
-log_error() { printf "${RED}%s${NC}\n" "$*"; }
+log_warn()  { printf "${YELLOW}%s${NC}\n" "$*" >&2; }
+log_error() { printf "${RED}%s${NC}\n" "$*" >&2; }
 die()       { log_error "$*"; exit 1; }
 
 # --- ШАПКИ МЕНЮ ---
@@ -165,6 +167,25 @@ require_docker() {
     die "❌ Docker daemon не запущен или нет доступа. Запусти: sudo systemctl start docker"
   fi
   require_cmd docker compose "Установи Docker Compose plugin"
+}
+
+# Волна 3: проверяет, что TCP-порт свободен (для acme standalone).
+# Возврат 0 — свободен (или проверить нечем), 1 — занят.
+require_port_free() {
+  local port="$1" why="${2:-}"
+  if ! command -v ss >/dev/null 2>&1; then
+    log_warn "  ⚠  Нет ss — не могу проверить занятость :${port}, продолжаю на свой риск"
+    return 0
+  fi
+  local holder
+  holder=$(ss -tlnp 2>/dev/null | grep -E "[:.]${port}[[:space:]]" | head -1 || true)
+  if [ -n "$holder" ]; then
+    log_error "  ❌ Порт :${port} занят: ${holder}"
+    [ -n "$why" ] && log_error "  ${why}"
+    log_error "  Освободи порт или используй DNS-01 вместо standalone."
+    return 1
+  fi
+  return 0
 }
 
 # --- ПРОВЕРКА КОНТЕЙНЕРОВ ---
@@ -589,6 +610,18 @@ generate_stream_config() {
   t_server=$(cfg_opt timeout_server 50s)
   t_tunnel=$(cfg_opt timeout_tunnel "")
   bind_stream=$(cfg_opt bind_stream "*:443")
+  # Волна 3: PROXY в web-бэкенд + healthcheck-суффиксы server-строк.
+  local swp swp_sfx check_sfx=""
+  swp=$(cfg_opt stream_web_proxy off)
+  case "$swp" in
+    off) swp_sfx="" ;;
+    v1) swp_sfx=" send-proxy" ;;
+    v2) swp_sfx=" send-proxy-v2" ;;
+    *) log_error "  ❌ stream_web_proxy: жди off/v1/v2" >&2; return 1 ;;
+  esac
+  if [ "$(cfg_opt backend_check off)" = "tcp" ]; then
+    check_sfx=" check inter 10s fall 2 rise 2"
+  fi
 
   cat << EOF
 global
@@ -663,7 +696,7 @@ EOF
   if [ "$total" -eq 1 ] && [ "${r_proxy[0]}" = "off" ]; then
     printf "backend bk_xray\n"
     printf "    mode tcp\n"
-    printf "    server xray 127.0.0.1:%s\n" "${r_ports[0]}"
+    printf "    server xray 127.0.0.1:%s%s\n" "${r_ports[0]}" "$check_sfx"
     printf "\n"
   else
     for ((i = 0; i < total; i++)); do
@@ -680,7 +713,7 @@ EOF
       esac
       printf "backend %s\n" "$bk"
       printf "    mode tcp\n"
-      printf "    server xray 127.0.0.1:%s%s\n" "${r_ports[i]}" "$proxy_line"
+      printf "    server xray 127.0.0.1:%s%s%s\n" "${r_ports[i]}" "$proxy_line" "$check_sfx"
       printf "\n"
     done
   fi
@@ -688,7 +721,7 @@ EOF
   cat << EOF
 backend bk_haproxy_web
     mode tcp
-    server haproxy_web 127.0.0.1:8443
+    server haproxy_web 127.0.0.1:8443${swp_sfx}${check_sfx}
 EOF
   # Волна 1: кастомные вставки бэкендов (если есть custom/stream-backend-*.cfg)
   emit_custom "stream-backend-*.cfg"
@@ -709,6 +742,19 @@ generate_web_config() {
       blackhole="deny"
       ;;
   esac
+  # Волна 3: accept-proxy на bind, deny_status для blackhole, healthcheck-суффиксы.
+  local accept_sfx="" deny_status check_sfx=""
+  if [ "$(cfg_opt web_accept_proxy off)" = "on" ]; then
+    accept_sfx=" accept-proxy"
+  fi
+  deny_status=$(cfg_opt blackhole_deny_status 403)
+  if ! [[ "$deny_status" =~ ^[0-9]+$ ]] || [ "$deny_status" -lt 100 ] || [ "$deny_status" -gt 599 ]; then
+    log_error "  ❌ blackhole_deny_status: жди код 100-599, получил '${deny_status}'" >&2
+    return 1
+  fi
+  if [ "$(cfg_opt backend_check off)" = "tcp" ]; then
+    check_sfx=" check inter 10s fall 2 rise 2"
+  fi
 
   cat << EOF
 global
@@ -736,7 +782,7 @@ EOF
   cat << EOF
 
 frontend ft_https_terminated
-    bind $bind_web ssl crt /etc/haproxy/certs/
+    bind $bind_web ssl crt /etc/haproxy/certs/$accept_sfx
     mode http
 
 EOF
@@ -846,17 +892,62 @@ EOF
     tag=$(web_tag_for "${w_domains[e]}" "${w_ports[e]}" "$e")
     printf "backend bk_%s\n" "$tag"
     printf "    mode http\n"
-    printf "    server %s 127.0.0.1:%s\n" "$tag" "${w_ports[e]}"
+    printf "    server %s 127.0.0.1:%s%s\n" "$tag" "${w_ports[e]}" "$check_sfx"
     printf "\n"
   done
 
   if [ "$blackhole" = "tarpit" ]; then
     printf "backend bk_blackhole\n    mode http\n    http-request tarpit\n"
+  elif [ "$deny_status" != "403" ]; then
+    printf "backend bk_blackhole\n    mode http\n    http-request deny deny_status %s\n" "$deny_status"
   else
     printf "backend bk_blackhole\n    mode http\n    http-request deny\n"
   fi
   # Волна 1: кастомные вставки бэкендов (если есть custom/web-backend-*.cfg)
   emit_custom "web-backend-*.cfg"
+}
+
+# Волна 3: топологические sanity-проверки (PROXY-парность и шумные опции).
+# Только варнинги (топологию целиком генератор не видит), кроме битых значений.
+# Вызывать ПОСЛЕ загрузки массивов, ДО генерации. Возврат 1 = фатально.
+check_proxy_parity() {
+  local stream_web accept_web checks
+  stream_web=$(cfg_opt stream_web_proxy off)
+  accept_web=$(cfg_opt web_accept_proxy off)
+  checks=$(cfg_opt backend_check off)
+  case "$stream_web" in
+    off | v1 | v2) ;;
+    *) log_error "  ❌ stream_web_proxy: жди off/v1/v2, получил '${stream_web}'"; return 1 ;;
+  esac
+  case "$accept_web" in
+    off | on) ;;
+    *) log_error "  ❌ web_accept_proxy: жди off/on, получил '${accept_web}'"; return 1 ;;
+  esac
+  case "$checks" in
+    off | tcp) ;;
+    *) log_error "  ❌ backend_check: жди off/tcp, получил '${checks}'"; return 1 ;;
+  esac
+  if [ "$accept_web" = "on" ] && [ "$stream_web" = "off" ]; then
+    log_warn "  ⚠  PROXY-рассинхрон: web ждёт PROXY (web_accept_proxy=on), а stream его не шлёт — ВСЕ соединения в web умрут. Включи stream_web_proxy=v1|v2."
+  fi
+  if [ "$stream_web" != "off" ] && [ "$accept_web" = "off" ]; then
+    log_warn "  ⚠  PROXY-рассинхрон: stream шлёт PROXY в web, а web его не читает — флуд 'not a PROXY header'. Включи web_accept_proxy=on."
+  fi
+  if [ "$checks" = "tcp" ]; then
+    log_warn "  ⚠  backend_check=tcp: healthcheck-коннекты будут шуметь в логах бэкендов (Xray пишет parse-ошибку на каждый голый чек). Включено осознанно — ок."
+  fi
+  # Напоминание про Xray-сторону (генератор её не видит и проверить не может)
+  local entry p
+  for entry in ${REALITY_SITES[@]+"${REALITY_SITES[@]}"}; do
+    parse_entry "$entry"
+    # shellcheck disable=SC2086
+    p="$(opt_value proxy off ${ENTRY_OPTS[@]+"${ENTRY_OPTS[@]}"})"
+    if [ "$p" != "off" ]; then
+      log_info "  ℹ  REALITY '${ENTRY_DOMAINS}' шлёт PROXY (${p}): Xray должен его читать (tcpSettings.acceptProxyProtocol), иначе рассинхрон."
+      break
+    fi
+  done
+  return 0
 }
 
 generate_configs() {
@@ -871,6 +962,11 @@ generate_configs() {
       log_error "  ❌ Ошибка чтения ${SITES_CONF}"
       return 1
     fi
+  fi
+
+  # Волна 3: sanity-проверки до любых записей (битые значения роняют генерацию)
+  if ! check_proxy_parity; then
+    return 1
   fi
 
   # Волна 1: бэкап текущего состояния до перезаписи
@@ -925,6 +1021,8 @@ preview_configs() {
     log_error "  ❌ Ошибка чтения ${SITES_CONF}"
     return 1
   fi
+  # Волна 3: те же sanity-проверки, что при генерации
+  check_proxy_parity || return 1
   local tmpdir
   tmpdir=$(mktemp -d)
   # shellcheck disable=SC2064
