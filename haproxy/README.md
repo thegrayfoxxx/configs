@@ -14,6 +14,10 @@ TLS-прокси для маршрутизации трафика по SNI с а
 - [Управление сайтами](#управление-сайтами)
 - [Управление Reality](#управление-reality)
 - [Управление сертификатами](#управление-сертификатами)
+- [Пресеты](#пресеты)
+- [Формат sites.conf v2](#формат-sitesconf-v2)
+- [Кастомные вставки](#кастомные-вставки)
+- [Бэкапы и откат](#бэкапы-и-откат)
 - [Конфигурация](#конфигурация)
 - [Общая библиотека common.sh](#общая-библиотека-scriptslibcommonsh)
 - [Обновление конфигов](#обновление-конфигов)
@@ -91,10 +95,22 @@ cd configs/haproxy
 
 ```
 haproxy/
-├── haproxy.sh                    # главное меню
-├── compose.yml                   # Docker Compose: stream + web + acme
-├── sites.conf                    # конфигурация (генерируется скриптами)
-├── sites.conf.example            # шаблон конфигурации
+├── haproxy.sh                    # главное меню (п.1-13)
+├── compose.yml                   # Docker Compose: stream + web + acme (profiles + log-лимиты)
+├── sites.conf                    # конфигурация (генерируется скриптами, не в git)
+├── sites.conf.example            # шаблон v1
+├── sites.conf.v2.example         # шаблон v2 с комментариями ко всем опциям
+├── .enabled_services             # включённые профили (не в git)
+├── .backup/                      # ротация бэкапов (не в git)
+├── custom/                       # твои вставки *.cfg (переживают регенерацию, не в git)
+│   ├── stream-frontend-*.cfg     # -> конец frontend ft_https
+│   ├── stream-backend-*.cfg      # -> конец stream-бэкендов
+│   ├── web-frontend-*.cfg        # -> конец frontend ft_https_terminated
+│   └── web-backend-*.cfg         # -> конец web-бэкендов
+├── presets/                      # библиотека сценариев (в git)
+│   ├── reality-selfsteal/        # SNI в xray + web-заглушка + PROXY-пара
+│   ├── xhttp-path-split/         # домен: /data/ -> Xray, остальное в stub + CDN-заметки
+│   └── multi-site-l7/            # пачка сайтов + blackhole
 ├── stream/
 │   ├── haproxy.cfg               # генерируется из sites.conf
 │   └── haproxy.cfg.example       # шаблон
@@ -102,12 +118,19 @@ haproxy/
 │   ├── haproxy.cfg               # генерируется из sites.conf
 │   ├── haproxy.cfg.example       # шаблон
 │   └── certs/                    # PEM-файлы сертификатов
+├── tests/                        # bash-тесты: bash -n, golden, юниты (запуск: bash tests/run.sh)
+│   └── fixtures/                 # эталоны и фикстуры
 └── scripts/
     ├── lib/common.sh             # общая библиотека (цвета, генерация, хелперы)
     ├── site.sh                   # управление сайтами
     ├── reality.sh                # управление reality
     ├── cert.sh                   # управление сертификатами
-    └── update.sh                 # обновление из репозитория
+    ├── services.sh               # юниты сервисов + init
+    ├── backups.sh                # бэкапы и откат
+    ├── init.sh                   # чистый старт (сервисы → конфиг → up)
+    ├── migrate.sh                # миграция sites.conf v1 → v2
+    ├── preset.sh                 # движок пресетов (list/show/apply/diff/new)
+    └── update.sh                 # обновление из репозитория (с бэкапом)
 ```
 
 ---
@@ -225,7 +248,9 @@ docker restart haproxy-web
 
 ┌─────────────────────────────────────────────┐
 │  Сервисы: ● stream  ● web  ● acme
+│  Профили: stream web acme
 │  Конфиг:  2 сайтов  1 reality
+│  Custom:  2 файлов
 │  HAProxy:  ок
 │  Серты:   3
 └─────────────────────────────────────────────┘
@@ -235,6 +260,8 @@ docker restart haproxy-web
 |-----------|----------|
 | `● stream / web / acme` | Зелёный = запущен, красный = остановлен |
 | `Сайтов / reality` | Количество из `sites.conf` |
+| `Профили` | Включённые сервисы (`.enabled_services`) для `docker compose --profile` |
+| `Custom` | Сколько `custom/*.cfg` подклеится при генерации |
 | `HAProxy: ок` | Конфиги синхронизированы |
 | `HAProxy: устарели` | `sites.conf` новее конфигов |
 | `HAProxy: нет конфигов` | Конфиги не сгенерированы |
@@ -251,7 +278,12 @@ docker restart haproxy-web
 | `5` | Перезапустить все сервисы |
 | `6` | Логи |
 | `7` | Обновить конфиги из репозитория |
-| `8` | Перегенерировать конфиги HAProxy |
+| `8` | Перегенерировать конфиги HAProxy (с diff-превью и подтверждением) |
+| `9` | Сервисы: вкл/выкл/рестарт/логи по каждому + init с нуля |
+| `10` | Бэкапы и откат (`.backup/`, ротация 10) |
+| `11` | Проверить конфиги (`haproxy -c`) |
+| `12` | Миграция `sites.conf` v1 → v2 |
+| `13` | Пресеты (готовые сценарии: list/show/apply/diff/new) |
 
 ---
 
@@ -533,3 +565,99 @@ cd scripts
 - **docker** с Docker Compose
 - **curl** (для обновлений из репозитория)
 - **openssl** (для проверки сертификатов)
+
+---
+
+## Пресеты
+
+Готовые сценарии в `presets/<имя>/`: `preset.conf` (шаблон `sites.conf` с `{{VAR}}`),
+`questions` (вопросы визарда `VAR|промпт|дефолт|валидатор`), `README.md`, `custom/` (оверлей).
+
+```bash
+./haproxy.sh → пункт 13
+# или напрямую:
+./scripts/preset.sh list                  # список
+./scripts/preset.sh show xhttp-path-split # README + вопросы
+./scripts/preset.sh apply xhttp-path-split        # визард → diff → запись → generate
+./scripts/preset.sh apply multi-site-l7 --dry-run --answers ans.txt  # без записи
+./scripts/preset.sh diff reality-selfsteal        # дефолты vs текущий sites.conf
+./scripts/preset.sh new my-preset                 # скелет своего пресета
+```
+
+Встроенные: `reality-selfsteal` (SNI в xray + web-заглушка + PROXY-пара),
+`xhttp-path-split` (домен: `/data/` в Xray, остальное в stub + CDN-заметки),
+`multi-site-l7` (пачка сайтов + blackhole). Детали, требования к xray/CDN
+и проверки — в `presets/<имя>/README.md`.
+
+---
+
+## Формат sites.conf v2
+
+v1-записи работают как раньше (обратная совместимость побайтово проверена
+тестами). Новое в v2:
+
+```bash
+WEB_SITES=(
+  "site.com:8080"                      # как v1
+  "x.com:11443:path=/data/"            # path-правило (выше общего!)
+  "x.com:8080"                         # общее правило того же домена
+)
+REALITY_SITES=(
+  "a.com:10443"                        # свой backend bk_xray_1
+  "b.com:10444:proxy=v2"               # свой backend + send-proxy-v2
+)
+GLOBAL_OPTS=(
+  "timeout_client=1h" "timeout_server=1h" "timeout_tunnel=1h"
+  "bind_stream=*:443" "bind_web=127.0.0.1:8443"
+  "blackhole=deny"                     # deny|tarpit
+  "blackhole_deny_status=404"          # код для deny (дефолт 403)
+  "stream_web_proxy=v2" "web_accept_proxy=on"  # PROXY-пара (парность проверяется!)
+  "backend_check=tcp"                  # healthcheck-и (шумят в логах, opt-in)
+  "forwardfor_backends=bk_site_x_com_11443"    # option forwardfor точечно
+  "stream_log_sni=on"                  # SNI в stream-лог
+  "web_capture_headers=on"             # capture Host и X-Forwarded-For
+)
+```
+
+Все ключи с комментариями — в `sites.conf.v2.example`. Миграция v1→v2:
+п.12 меню (`migrate.sh`, есть `--dry-run`). Подробнее — `MIGRATION.md`.
+
+---
+
+## Кастомные вставки
+
+Файлы `custom/<секция>-<имя>.cfg` подклеиваются генератором и **никогда**
+не затираются (в git не трекаются):
+
+| Маска | Куда подклеивается |
+|---|---|
+| `stream-frontend-*.cfg` | конец `frontend ft_https` (stream) |
+| `stream-backend-*.cfg` | конец stream-бэкендов |
+| `web-frontend-*.cfg` | конец `frontend ft_https_terminated` (web) |
+| `web-backend-*.cfg` | конец web-бэкендов |
+
+Правило: всё, что умеет `sites.conf`/пресеты — туда; `custom/` — только то,
+чему нет опции (экзотика, временные хаки). Статус-бокс показывает счётчик файлов.
+
+---
+
+## Бэкапы и откат
+
+Перед каждым `save`/`generate`/миграцией/обновлением — снимок `sites.conf`
+и обоих `haproxy.cfg` в `.backup/<дата>-<причина>/` (ротация: последние 10).
+Откат: п.10 меню (список → выбор → `pre-rollback`-бэкап текущего),
+после отката — перезапустить сервисы (п.5). Генерация идёт через temp-файлы
+с `haproxy -c` и атомарным перемещением: битый конфиг в прод не попадает.
+
+---
+
+## Тесты
+
+```bash
+bash tests/run.sh   # bash -n по всем скриптам, golden-тесты генерации, юниты
+```
+
+Golden: фикстуры `tests/fixtures/sites*.conf` → эталоны `expected*.cfg`
+(v1 — байт-в-байт со старым генератором, v2 — multi-backend/path/PROXY,
+v3 — deny_status/checks/accept-proxy, v4 — SNI-лог/capture/forwardfor).
+`shellcheck` подхватывается автоматически, если установлен.

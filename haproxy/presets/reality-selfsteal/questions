@@ -1,0 +1,7 @@
+# Формат: VAR|промпт|дефолт|валидатор (any|nonempty|domain|port|email, list:domainport)
+# derive:VAR=tag DOMVAR PORTVAR — вычислить тег бэкенда site_домен_порт
+ACME_EMAIL|Email для ACME (сертификаты LE)|mail@example.com|email
+STUB_DOMAIN|Домен заглушки (что видят браузеры/сканеры без ключа)|drop.example.com|domain
+STUB_PORT|Порт бэкенда заглушки (статика: nginx/caddy)|8080|port
+REALITY_DOMAINS|Домены reality через пробел (SNI клиентов)|vpn.example.com|nonempty
+XRAY_PORT|Порт xray inbound (VLESS+reality, слушает loopback)|10443|port

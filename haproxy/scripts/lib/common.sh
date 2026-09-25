@@ -99,6 +99,14 @@ print_status_box() {
   printf "${CYAN}┌─────────────────────────────────────────────┐${NC}\n"
   printf "${CYAN}│${NC}  Сервисы: %b stream  %b web  %b acme\n" "$stream_status" "$web_status" "$acme_status"
   printf "${CYAN}│${NC}  Профили: ${GREEN}%s${NC}\n" "$(svc_load_enabled)"
+  # Волна 4: счётчик кастомных вставок (видно, что генератор подхватит)
+  local custom_count=0
+  if [ -d "$CUSTOM_DIR" ]; then
+    custom_count=$(find "$CUSTOM_DIR" -maxdepth 1 -name '*.cfg' 2>/dev/null | wc -l)
+  fi
+  if [ "$custom_count" -gt 0 ]; then
+    printf "${CYAN}│${NC}  Custom:  ${GREEN}%d${NC} файлов\n" "$custom_count"
+  fi
   printf "${CYAN}│${NC}  Конфиг:  ${GREEN}%d${NC} сайтов  ${GREEN}%d${NC} reality\n" "$site_count" "$reality_count"
 
   # Статус конфигов HAProxy
@@ -649,6 +657,12 @@ frontend ft_https
     tcp-request content accept if { req.ssl_hello_type 1 }
 
 EOF
+  # Волна 4: SNI в stream-лог (opt-in stream_log_sni=on; дефолт off = как было).
+  case "$(cfg_opt stream_log_sni off)" in
+    off) ;;
+    on) printf '    log-format "%%ci:%%cp [%%t] %%ft %%b/%%s %%Tw/%%Tc/%%Tt %%B %%ts %%ac/%%fc/%%bc/%%sc/%%rc %%sq/%%bq SNI:%%{+Q}[req.ssl_sni]"\n' ;;
+    *) log_warn "  ⚠  Неизвестный stream_log_sni (жди off/on), игнорирую" >&2 ;;
+  esac
 
   # V2: каждая REALITY-запись — свой ACL и свой backend (порт и PROXY из записи).
   # Одна запись без опций даёт байт-в-байт вывод v1 (обратная совместимость).
@@ -786,6 +800,15 @@ frontend ft_https_terminated
     mode http
 
 EOF
+  # Волна 4: capture заголовков (opt-in web_capture_headers=on; дефолт off).
+  case "$(cfg_opt web_capture_headers off)" in
+    off) ;;
+    on)
+      printf "    capture request header Host len 64\n"
+      printf "    capture request header X-Forwarded-For len 128\n"
+      ;;
+    *) log_warn "  ⚠  Неизвестный web_capture_headers (жди off/on), игнорирую" >&2 ;;
+  esac
 
   # V2: разбор WEB-записей. Формат: "домен:порт[:path=/prefix][:опции...]".
   # Один домен без path => legacy-вид v1 (байт-в-байт). Несколько записей
@@ -892,6 +915,10 @@ EOF
     tag=$(web_tag_for "${w_domains[e]}" "${w_ports[e]}" "$e")
     printf "backend bk_%s\n" "$tag"
     printf "    mode http\n"
+    # Волна 4: option forwardfor точечно (forwardfor_backends="bk_a,bk_b").
+    if [[ ",$(cfg_opt forwardfor_backends "")," == *",bk_${tag},"* ]]; then
+      printf "    option forwardfor\n"
+    fi
     printf "    server %s 127.0.0.1:%s%s\n" "$tag" "${w_ports[e]}" "$check_sfx"
     printf "\n"
   done

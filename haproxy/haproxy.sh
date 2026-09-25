@@ -30,6 +30,7 @@ show_menu() {
     printf "  ${GREEN}10.${NC} 💾 Бэкапы и откат\n"
     printf "  ${GREEN}11.${NC} ✅ Проверить конфиги (haproxy -c)\n"
     printf "  ${GREEN}12.${NC} 🔀 Миграция sites.conf v1 → v2\n"
+    printf "  ${GREEN}13.${NC} 🎛️  Пресеты (готовые сценарии)\n"
     printf "  ${RED}0.${NC} ❌ Выход\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
@@ -189,6 +190,15 @@ show_menu() {
         fi
         printf "\n"
         read -p "[Enter]..." < /dev/tty
+        ;;
+      13)
+        if [ -f "${SCRIPTS_DIR}/preset.sh" ]; then
+          bash "${SCRIPTS_DIR}/preset.sh" < /dev/tty
+        else
+          clear_screen
+          log_error "❌ preset.sh не найден"
+          read -p "[Enter]..." < /dev/tty
+        fi
         ;;
       0) exit 0 ;;
       *) log_error "❌ Неверный пункт"; sleep 1; continue ;;
