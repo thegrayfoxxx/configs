@@ -12,8 +12,14 @@ NC=$'\033[0m'
 
 # --- ПУТИ ---
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HAPROXY_DIR="$(cd "${LIB_DIR}/../.." && pwd)"
+# HAPROXY_DIR_OVERRIDE нужен тестам: подменяет корень проекта на временную копию
+HAPROXY_DIR="${HAPROXY_DIR_OVERRIDE:-$(cd "${LIB_DIR}/../.." && pwd)}"
 SITES_CONF="${HAPROXY_DIR}/sites.conf"
+# Волна 1: локальное состояние (не в git, см. .gitignore)
+BACKUP_DIR="${HAPROXY_DIR}/.backup"
+CUSTOM_DIR="${HAPROXY_DIR}/custom"
+ENABLED_FILE="${HAPROXY_DIR}/.enabled_services"
+BACKUP_KEEP=10
 
 # --- ОЧИСТКА ЭКРАНА ---
 clear_screen() {
@@ -86,6 +92,7 @@ print_status_box() {
   # Рисуем рамку
   printf "${CYAN}┌─────────────────────────────────────────────┐${NC}\n"
   printf "${CYAN}│${NC}  Сервисы: %b stream  %b web  %b acme\n" "$stream_status" "$web_status" "$acme_status"
+  printf "${CYAN}│${NC}  Профили: ${GREEN}%s${NC}\n" "$(svc_load_enabled)"
   printf "${CYAN}│${NC}  Конфиг:  ${GREEN}%d${NC} сайтов  ${GREEN}%d${NC} reality\n" "$site_count" "$reality_count"
 
   # Статус конфигов HAProxy
@@ -168,10 +175,9 @@ require_haproxy() {
   fi
 }
 
-# --- БЕЗОПАСНЫЙ DOCKER COMPOSE ---
+# --- БЕЗОПАСНЫЙ DOCKER COMPOSE (через dc: с профилями включённых сервисов) ---
 safe_docker_compose() {
-  cd "$HAPROXY_DIR" || die "❌ Не удалось перейти в ${HAPROXY_DIR}"
-  if ! docker compose "$@"; then
+  if ! dc "$@"; then
     log_error "❌ docker compose ${1*} завершился с ошибкой"
     return 1
   fi
@@ -340,6 +346,8 @@ load_sites() {
 }
 
 save_sites() {
+  # Волна 1: бэкап перед перезаписью sites.conf
+  [ -f "$SITES_CONF" ] && backup_now "pre-save" >/dev/null
   cat > "$SITES_CONF" << EOF
 # HAProxy конфигурация
 # Генерируется скриптами, можно редактировать вручную
@@ -358,6 +366,147 @@ REALITY_SITES=(
 $(printf '  "%s"\n' "${REALITY_SITES[@]+"${REALITY_SITES[@]}"}")
 )
 EOF
+}
+
+# --- CUSTOM-ВСТАВКИ (волна 1: переживают перегенерацию) ---
+# Выводит содержимое custom/<pattern> с заголовками. Нет директории — молча ничего.
+emit_custom() {
+  local pattern="$1"
+  [ -d "$CUSTOM_DIR" ] || return 0
+  shopt -s nullglob
+  local f
+  for f in "$CUSTOM_DIR"/$pattern; do
+    printf "\n    # --- custom: %s ---\n" "$(basename "$f")"
+    cat "$f"
+  done
+  shopt -u nullglob
+}
+
+# --- БЭКАПЫ (волна 1) ---
+backup_now() {
+  local reason="${1:-manual}"
+  local ts
+  ts=$(date '+%Y%m%d-%H%M%S')
+  local dest="${BACKUP_DIR}/${ts}-${reason}"
+  mkdir -p "$dest"
+  [ -f "$SITES_CONF" ] && cp "$SITES_CONF" "$dest/sites.conf"
+  [ -f "${HAPROXY_DIR}/stream/haproxy.cfg" ] && cp "${HAPROXY_DIR}/stream/haproxy.cfg" "$dest/stream.cfg"
+  [ -f "${HAPROXY_DIR}/web/haproxy.cfg" ] && cp "${HAPROXY_DIR}/web/haproxy.cfg" "$dest/web.cfg"
+  # Ротация: держим последние BACKUP_KEEP
+  local old
+  old=$(ls -1 "$BACKUP_DIR" 2>/dev/null | sort | head -n -"$BACKUP_KEEP")
+  if [ -n "$old" ]; then
+    echo "$old" | while read -r d; do rm -rf "${BACKUP_DIR:?}/$d"; done
+  fi
+  printf "%s" "$dest"
+}
+
+list_backups() {
+  [ -d "$BACKUP_DIR" ] || return 0
+  ls -1 "$BACKUP_DIR" 2>/dev/null | sort -r
+}
+
+rollback_backup() {
+  local name="$1"
+  local src="${BACKUP_DIR}/${name}"
+  [ -d "$src" ] || { log_error "❌ Бэкап ${name} не найден"; return 1; }
+  backup_now "pre-rollback" >/dev/null
+  [ -f "$src/sites.conf" ] && cp "$src/sites.conf" "$SITES_CONF"
+  [ -f "$src/stream.cfg" ] && cp "$src/stream.cfg" "${HAPROXY_DIR}/stream/haproxy.cfg"
+  [ -f "$src/web.cfg" ] && cp "$src/web.cfg" "${HAPROXY_DIR}/web/haproxy.cfg"
+  log_info "✅ Откат к ${name} выполнен (предыдущее состояние — в свежем бэкапе pre-rollback)"
+}
+
+# --- ВАЛИДАЦИЯ КОНФИГОВ (волна 1) ---
+# Проверяет haproxy-конфиг. Возврат: 0 ок/проверка невозможна, 1 битый конфиг.
+validate_cfg() {
+  local file="$1"
+  if ! command -v haproxy >/dev/null 2>&1; then
+    log_warn "  ⚠  haproxy не найден — пропускаю валидацию ${file}"
+    return 0
+  fi
+  if haproxy -c -V -f "$file" >/dev/null 2>&1; then
+    return 0
+  fi
+  log_error "  ❌ Битый конфиг: ${file}"
+  haproxy -c -V -f "$file" 2>&1 | head -20
+  return 1
+}
+
+# --- СЕРВИСЫ: профили compose (волна 1) ---
+# Включённый набор хранится в .enabled_services (по умолчанию все три).
+SVC_ALL="stream web acme"
+
+svc_load_enabled() {
+  if [ -f "$ENABLED_FILE" ]; then
+    cat "$ENABLED_FILE"
+  else
+    printf "%s" "$SVC_ALL"
+  fi
+}
+
+svc_is_enabled() {
+  local svc="$1"
+  local enabled
+  enabled=$(svc_load_enabled)
+  # shellcheck disable=SC2086
+  for s in $enabled; do
+    [ "$s" = "$svc" ] && return 0
+  done
+  return 1
+}
+
+svc_enable() {
+  local svc="$1"
+  local enabled
+  enabled=$(svc_load_enabled)
+  if svc_is_enabled "$svc"; then return 0; fi
+  printf "%s %s" "$enabled" "$svc" | xargs > "$ENABLED_FILE"
+}
+
+svc_disable() {
+  local svc="$1"
+  local out=""
+  local enabled
+  enabled=$(svc_load_enabled)
+  # shellcheck disable=SC2086
+  for s in $enabled; do
+    [ "$s" = "$svc" ] || out="${out} ${s}"
+  done
+  printf "%s" "$out" | xargs > "$ENABLED_FILE"
+}
+
+svc_container() {
+  case "$1" in
+    stream) printf "haproxy-stream" ;;
+    web) printf "haproxy-web" ;;
+    acme) printf "acme" ;;
+    *) return 1 ;;
+  esac
+}
+
+svc_running() {
+  local cname
+  cname=$(svc_container "$1") || return 1
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${cname}\$" || return 1
+}
+
+# dc: docker compose с профилями включённых сервисов.
+# Использование: dc up -d / dc restart / dc logs ... (как docker compose, но с профилями)
+dc() {
+  local profiles=()
+  local enabled
+  enabled=$(svc_load_enabled)
+  # shellcheck disable=SC2086
+  for s in $enabled; do
+    case "$s" in
+      stream|web|acme) profiles+=(--profile "$s") ;;
+      *) log_warn "  ⚠  Неизвестный сервис в .enabled_services: $s (игнорирую)" ;;
+    esac
+  done
+  cd "$HAPROXY_DIR" || die "❌ Не удалось перейти в ${HAPROXY_DIR}"
+  # shellcheck disable=SC2086
+  docker compose ${profiles[@]+"${profiles[@]}"} "$@"
 }
 
 # --- ГЕНЕРАЦИЯ КОНФИГОВ ---
@@ -400,6 +549,11 @@ EOF
   cat << 'EOF'
     default_backend bk_haproxy_web
 
+EOF
+  # Волна 1: кастомные вставки фронта (если есть custom/stream-frontend-*.cfg)
+  emit_custom "stream-frontend-*.cfg"
+
+  cat << 'EOF'
 backend bk_xray
     mode tcp
     server xray 127.0.0.1:10443
@@ -408,6 +562,8 @@ backend bk_haproxy_web
     mode tcp
     server haproxy_web 127.0.0.1:8443
 EOF
+  # Волна 1: кастомные вставки бэкендов (если есть custom/stream-backend-*.cfg)
+  emit_custom "stream-backend-*.cfg"
 }
 
 generate_web_config() {
@@ -448,6 +604,8 @@ EOF
     default_backend bk_blackhole
 
 EOF
+  # Волна 1: кастомные вставки фронта (если есть custom/web-frontend-*.cfg)
+  emit_custom "web-frontend-*.cfg"
 
   # Site backends
   for entry in "${WEB_SITES[@]+"${WEB_SITES[@]}"}"; do
@@ -465,6 +623,8 @@ backend bk_blackhole
     mode http
     http-request deny
 EOF
+  # Волна 1: кастомные вставки бэкендов (если есть custom/web-backend-*.cfg)
+  emit_custom "web-backend-*.cfg"
 }
 
 generate_configs() {
@@ -480,15 +640,40 @@ generate_configs() {
     fi
   fi
 
-  if ! generate_stream_config > "${HAPROXY_DIR}/stream/haproxy.cfg"; then
-    log_error "  ❌ Ошибка генерации stream/haproxy.cfg"
+  # Волна 1: бэкап текущего состояния до перезаписи
+  backup_now "pre-generate" >/dev/null
+
+  # Волна 1: генерация во временные файлы + валидация + атомарное перемещение.
+  # Сломанный конфиг никогда не попадает в stream/haproxy.cfg и web/haproxy.cfg.
+  local tmp_stream tmp_web
+  tmp_stream=$(mktemp)
+  tmp_web=$(mktemp)
+  # shellcheck disable=SC2064
+  trap "rm -f '$tmp_stream' '$tmp_web'" RETURN
+
+  if ! generate_stream_config > "$tmp_stream"; then
+    log_error "  ❌ Ошибка генерации stream-конфига (старый файл не тронут)"
     return 1
   fi
 
-  if ! generate_web_config > "${HAPROXY_DIR}/web/haproxy.cfg"; then
-    log_error "  ❌ Ошибка генерации web/haproxy.cfg"
+  if ! generate_web_config > "$tmp_web"; then
+    log_error "  ❌ Ошибка генерации web-конфига (старый файл не тронут)"
     return 1
   fi
 
-  log_info "  ✅ Конфиги обновлены"
+  if ! validate_cfg "$tmp_stream"; then
+    log_error "  ❌ stream-конфиг не прошёл валидацию (старый файл не тронут)"
+    return 1
+  fi
+
+  if ! validate_cfg "$tmp_web"; then
+    log_error "  ❌ web-конфиг не прошёл валидацию (старый файл не тронут)"
+    return 1
+  fi
+
+  mkdir -p "${HAPROXY_DIR}/stream" "${HAPROXY_DIR}/web"
+  mv "$tmp_stream" "${HAPROXY_DIR}/stream/haproxy.cfg"
+  mv "$tmp_web" "${HAPROXY_DIR}/web/haproxy.cfg"
+
+  log_info "  ✅ Конфиги обновлены (бэкап предыдущего — в .backup/)"
 }

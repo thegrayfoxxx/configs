@@ -37,6 +37,8 @@ update_from_repo() {
   fi
 
   printf "  ${CYAN}📋 Обновляю файлы...${NC}\n"
+  # Волна 1: бэкап всего haproxy/ до перезаписи (кроме самого .backup)
+  backup_now "pre-update" >/dev/null
   shopt -s dotglob
   if ! cp -r "$TEMP_DIR"/* .; then
     log_error "❌ Ошибка копирования файлов"

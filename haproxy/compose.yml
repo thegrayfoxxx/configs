@@ -5,6 +5,13 @@ services:
     restart: always
     user: root
     network_mode: host
+    profiles:
+      - stream
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     volumes:
       - ./stream/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
 
@@ -13,6 +20,13 @@ services:
     container_name: haproxy-web
     restart: always
     network_mode: host
+    profiles:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     volumes:
       - ./web/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - ./web/certs:/etc/haproxy/certs:ro
@@ -23,6 +37,13 @@ services:
     restart: always
     network_mode: host
     command: daemon
+    profiles:
+      - acme
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - acme:/acme.sh
       - ./web/certs:/etc/haproxy/certs

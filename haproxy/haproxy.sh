@@ -26,6 +26,9 @@ show_menu() {
     printf "  ${GREEN}6.${NC} 📋 Логи\n"
     printf "  ${GREEN}7.${NC} ⬇️  Обновить конфиги из репозитория\n"
     printf "  ${GREEN}8.${NC} 📝 Перегенерировать конфиги\n"
+    printf "  ${GREEN}9.${NC} 🧩 Сервисы (вкл/выкл/рестарт/init)\n"
+    printf "  ${GREEN}10.${NC} 💾 Бэкапы и откат\n"
+    printf "  ${GREEN}11.${NC} ✅ Проверить конфиги (haproxy -c)\n"
     printf "  ${RED}0.${NC} ❌ Выход\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
@@ -130,6 +133,36 @@ show_menu() {
           generate_configs
         else
           log_error "❌ sites.conf не найден"
+        fi
+        read -p "[Enter]..." < /dev/tty
+        ;;
+      9)
+        if [ -f "${SCRIPTS_DIR}/services.sh" ]; then
+          bash "${SCRIPTS_DIR}/services.sh" < /dev/tty
+        else
+          clear_screen
+          log_error "❌ services.sh не найден"
+          read -p "[Enter]..." < /dev/tty
+        fi
+        ;;
+      10)
+        if [ -f "${SCRIPTS_DIR}/backups.sh" ]; then
+          bash "${SCRIPTS_DIR}/backups.sh" < /dev/tty
+        else
+          clear_screen
+          log_error "❌ backups.sh не найден"
+          read -p "[Enter]..." < /dev/tty
+        fi
+        ;;
+      11)
+        clear_screen
+        print_header "ПРОВЕРКА КОНФИГОВ" "✅"
+        load_sites 2>/dev/null || true
+        rc=0
+        validate_cfg "${SCRIPT_DIR}/stream/haproxy.cfg" || rc=1
+        validate_cfg "${SCRIPT_DIR}/web/haproxy.cfg" || rc=1
+        if [ "$rc" -eq 0 ]; then
+          log_info "✅ Оба конфига в порядке (или haproxy нет для проверки)"
         fi
         read -p "[Enter]..." < /dev/tty
         ;;
