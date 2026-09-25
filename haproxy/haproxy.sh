@@ -29,6 +29,7 @@ show_menu() {
     printf "  ${GREEN}9.${NC} 🧩 Сервисы (вкл/выкл/рестарт/init)\n"
     printf "  ${GREEN}10.${NC} 💾 Бэкапы и откат\n"
     printf "  ${GREEN}11.${NC} ✅ Проверить конфиги (haproxy -c)\n"
+    printf "  ${GREEN}12.${NC} 🔀 Миграция sites.conf v1 → v2\n"
     printf "  ${RED}0.${NC} ❌ Выход\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
@@ -130,7 +131,19 @@ show_menu() {
       8)
         if [ -f "$SITES_CONF" ]; then
           load_sites
-          generate_configs
+          printf "\n"
+          if preview_configs; then
+            log_info "✅ Перегенерировать нечего — живые конфиги совпадают"
+          else
+            printf "\n"
+            printf "  ${CYAN}👉 Применить показанный diff? [y/N]:${NC} "
+            read -r ans < /dev/tty
+            if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
+              generate_configs
+            else
+              log_info "Отмена (живые файлы не тронуты)"
+            fi
+          fi
         else
           log_error "❌ sites.conf не найден"
         fi
@@ -164,6 +177,17 @@ show_menu() {
         if [ "$rc" -eq 0 ]; then
           log_info "✅ Оба конфига в порядке (или haproxy нет для проверки)"
         fi
+        read -p "[Enter]..." < /dev/tty
+        ;;
+      12)
+        if [ -f "${SCRIPTS_DIR}/migrate.sh" ]; then
+          bash "${SCRIPTS_DIR}/migrate.sh" < /dev/tty
+        else
+          clear_screen
+          log_error "❌ migrate.sh не найден"
+          read -p "[Enter]..." < /dev/tty
+        fi
+        printf "\n"
         read -p "[Enter]..." < /dev/tty
         ;;
       0) exit 0 ;;

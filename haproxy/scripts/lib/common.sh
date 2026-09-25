@@ -15,6 +15,10 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # HAPROXY_DIR_OVERRIDE нужен тестам: подменяет корень проекта на временную копию
 HAPROXY_DIR="${HAPROXY_DIR_OVERRIDE:-$(cd "${LIB_DIR}/../.." && pwd)}"
 SITES_CONF="${HAPROXY_DIR}/sites.conf"
+# V2: массивы всегда инициализированы (v1-файлы их не задают — тогда пусто).
+WEB_SITES=()
+REALITY_SITES=()
+GLOBAL_OPTS=()
 # Волна 1: локальное состояние (не в git, см. .gitignore)
 BACKUP_DIR="${HAPROXY_DIR}/.backup"
 CUSTOM_DIR="${HAPROXY_DIR}/custom"
@@ -318,6 +322,16 @@ interactive_setup() {
       echo "  \"${reality_domains}:${reality_port}\""
     fi
     echo ")"
+    echo ""
+    echo "# Глобальные опции (v2): значения по умолчанию = текущее поведение"
+    echo "GLOBAL_OPTS=("
+    echo "  \"timeout_connect=5s\""
+    echo "  \"timeout_client=50s\""
+    echo "  \"timeout_server=50s\""
+    echo "  \"bind_stream=*:443\""
+    echo "  \"bind_web=*:8443\""
+    echo "  \"blackhole=deny\""
+    echo ")"
   } > "$SITES_CONF"
 
   printf "\n"
@@ -340,6 +354,7 @@ load_sites() {
   ensure_sites_conf
   WEB_SITES=()
   REALITY_SITES=()
+  GLOBAL_OPTS=()
   if ! source "$SITES_CONF"; then
     die "❌ Ошибка чтения ${SITES_CONF}. Проверь синтаксис файла."
   fi
@@ -366,6 +381,16 @@ REALITY_SITES=(
 $(printf '  "%s"\n' "${REALITY_SITES[@]+"${REALITY_SITES[@]}"}")
 )
 EOF
+  # V2: глобальные опции — пишем только если заданы (v1-файл остаётся v1-чистым)
+  if [ "${#GLOBAL_OPTS[@]}" -gt 0 ]; then
+    {
+      echo ""
+      echo "# Глобальные опции (v2)"
+      echo "GLOBAL_OPTS=("
+      printf '  "%s"\n' "${GLOBAL_OPTS[@]}"
+      echo ")"
+    } >> "$SITES_CONF"
+  fi
 }
 
 # --- CUSTOM-ВСТАВКИ (волна 1: переживают перегенерацию) ---
@@ -509,9 +534,63 @@ dc() {
   docker compose ${profiles[@]+"${profiles[@]}"} "$@"
 }
 
+# --- V2: разбор записей и опций ---
+# Формат записи: "часть0:часть1[:ключ=знач...]", где часть0 — домен(ы, через пробел),
+# часть1 — порт. Двоеточий внутри доменов не бывает, поэтому сплит по ':' безопасен.
+# Результат — в ENTRY_DOMAINS, ENTRY_PORT, ENTRY_OPTS (массив).
+parse_entry() {
+  local entry="$1"
+  IFS=':' read -ra _parts <<< "$entry"
+  ENTRY_DOMAINS="${_parts[0]:-}"
+  ENTRY_PORT="${_parts[1]:-}"
+  ENTRY_OPTS=()
+  local i
+  for ((i = 2; i < ${#_parts[@]}; i++)); do
+    ENTRY_OPTS+=("${_parts[i]}")
+  done
+}
+
+# opt_value <ключ> <дефолт> [опции...] — значение опции или дефолт.
+opt_value() {
+  local key="$1" def="$2"
+  shift 2
+  local o k
+  for o in "$@"; do
+    k="${o%%=*}"
+    if [ "$k" = "$key" ]; then
+      printf "%s" "${o#*=}"
+      return 0
+    fi
+  done
+  printf "%s" "$def"
+}
+
+# cfg_opt <ключ> <дефолт> — значение из GLOBAL_OPTS или дефолт.
+cfg_opt() {
+  local key="$1" def="$2"
+  if declare -p GLOBAL_OPTS >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    opt_value "$key" "$def" ${GLOBAL_OPTS[@]+"${GLOBAL_OPTS[@]}"}
+  else
+    printf "%s" "$def"
+  fi
+}
+
+# tag_for_domain <домен> — базовый тег бэкенда (как в v1).
+tag_for_domain() {
+  printf "site_%s" "$(echo "$1" | tr '.' '_')"
+}
+
 # --- ГЕНЕРАЦИЯ КОНФИГОВ ---
 generate_stream_config() {
-  cat << 'EOF'
+  local t_conn t_client t_server t_tunnel bind_stream
+  t_conn=$(cfg_opt timeout_connect 5s)
+  t_client=$(cfg_opt timeout_client 50s)
+  t_server=$(cfg_opt timeout_server 50s)
+  t_tunnel=$(cfg_opt timeout_tunnel "")
+  bind_stream=$(cfg_opt bind_stream "*:443")
+
+  cat << EOF
 global
     log stdout format raw local0
     maxconn 4096
@@ -521,29 +600,57 @@ defaults
     mode    tcp
     option  tcplog
     option  dontlognull
-    timeout connect 5s
-    timeout client  50s
-    timeout server  50s
+    timeout connect $t_conn
+    timeout client  $t_client
+    timeout server  $t_server
+EOF
+  if [ -n "$t_tunnel" ]; then
+    printf "    timeout tunnel %s\n" "$t_tunnel"
+  fi
+  cat << EOF
 
 frontend ft_https
-    bind *:443
+    bind $bind_stream
     mode tcp
     tcp-request inspect-delay 5s
     tcp-request content accept if { req.ssl_hello_type 1 }
 
 EOF
 
-  # Reality ACLs
-  local first=true
+  # V2: каждая REALITY-запись — свой ACL и свой backend (порт и PROXY из записи).
+  # Одна запись без опций даёт байт-в-байт вывод v1 (обратная совместимость).
+  local -a r_domains=() r_ports=() r_proxy=()
+  local entry
   for entry in "${REALITY_SITES[@]+"${REALITY_SITES[@]}"}"; do
-    local domains="${entry%%:*}"
-    printf "    acl is_reality req.ssl_sni -i %s\n" "$domains"
-    first=false
+    parse_entry "$entry"
+    if [ -z "$ENTRY_DOMAINS" ] || [ -z "$ENTRY_PORT" ]; then
+      log_error "  ❌ Бигая запись REALITY_SITES: '${entry}' (нужно 'домены:порт[:опции]')"
+      return 1
+    fi
+    if ! validate_port "$ENTRY_PORT" "порт xray"; then
+      return 1
+    fi
+    r_domains+=("$ENTRY_DOMAINS")
+    r_ports+=("$ENTRY_PORT")
+    # shellcheck disable=SC2086
+    r_proxy+=("$(opt_value proxy off ${ENTRY_OPTS[@]+"${ENTRY_OPTS[@]}"})")
   done
 
-  if [ "$first" = false ]; then
+  local total=${#r_domains[@]}
+  local i acl bk proxy_line
+  if [ "$total" -eq 1 ] && [ "${r_proxy[0]}" = "off" ]; then
+    # Legacy-вид одиночной записи (как v1)
+    printf "    acl is_reality req.ssl_sni -i %s\n" "${r_domains[0]}"
     echo "    use_backend bk_xray if is_reality"
     echo ""
+  else
+    for ((i = 0; i < total; i++)); do
+      acl="is_reality_$((i + 1))"
+      bk="bk_xray_$((i + 1))"
+      printf "    acl %s req.ssl_sni -i %s\n" "$acl" "${r_domains[i]}"
+      printf "    use_backend %s if %s\n" "$bk" "$acl"
+    done
+    [ "$total" -gt 0 ] && echo ""
   fi
 
   cat << 'EOF'
@@ -553,11 +660,32 @@ EOF
   # Волна 1: кастомные вставки фронта (если есть custom/stream-frontend-*.cfg)
   emit_custom "stream-frontend-*.cfg"
 
-  cat << 'EOF'
-backend bk_xray
-    mode tcp
-    server xray 127.0.0.1:10443
+  if [ "$total" -eq 1 ] && [ "${r_proxy[0]}" = "off" ]; then
+    printf "backend bk_xray\n"
+    printf "    mode tcp\n"
+    printf "    server xray 127.0.0.1:%s\n" "${r_ports[0]}"
+    printf "\n"
+  else
+    for ((i = 0; i < total; i++)); do
+      bk="bk_xray_$((i + 1))"
+      proxy_line=""
+      case "${r_proxy[i]}" in
+        v2) proxy_line=" send-proxy-v2" ;;
+        v1) proxy_line=" send-proxy" ;;
+        off) proxy_line="" ;;
+        *)
+          log_warn "  ⚠  Неизвестный proxy='${r_proxy[i]}' (жди v1/v2/off), пропускаю" >&2
+          proxy_line=""
+          ;;
+      esac
+      printf "backend %s\n" "$bk"
+      printf "    mode tcp\n"
+      printf "    server xray 127.0.0.1:%s%s\n" "${r_ports[i]}" "$proxy_line"
+      printf "\n"
+    done
+  fi
 
+  cat << EOF
 backend bk_haproxy_web
     mode tcp
     server haproxy_web 127.0.0.1:8443
@@ -567,7 +695,22 @@ EOF
 }
 
 generate_web_config() {
-  cat << 'EOF'
+  local t_conn t_client t_server t_tunnel bind_web blackhole
+  t_conn=$(cfg_opt timeout_connect 5s)
+  t_client=$(cfg_opt timeout_client 50s)
+  t_server=$(cfg_opt timeout_server 50s)
+  t_tunnel=$(cfg_opt timeout_tunnel "")
+  bind_web=$(cfg_opt bind_web "*:8443")
+  blackhole=$(cfg_opt blackhole "deny")
+  case "$blackhole" in
+    deny | tarpit) ;;
+    *)
+      log_warn "  ⚠  Неизвестный blackhole='${blackhole}' (жди deny/tarpit), использую deny" >&2
+      blackhole="deny"
+      ;;
+  esac
+
+  cat << EOF
 global
     log stdout format raw local0
     maxconn 4096
@@ -580,24 +723,105 @@ defaults
     mode    http
     option  httplog
     option  dontlognull
-    timeout connect 5s
-    timeout client  50s
-    timeout server  50s
+    timeout connect $t_conn
+    timeout client  $t_client
+    timeout server  $t_server
+EOF
+  if [ -n "$t_tunnel" ]; then
+    printf "    timeout tunnel %s\n" "$t_tunnel"
+  fi
+  if [ "$blackhole" = "tarpit" ]; then
+    printf "    timeout tarpit 10s\n"
+  fi
+  cat << EOF
 
 frontend ft_https_terminated
-    bind *:8443 ssl crt /etc/haproxy/certs/
+    bind $bind_web ssl crt /etc/haproxy/certs/
     mode http
 
 EOF
 
-  # Site ACLs
+  # V2: разбор WEB-записей. Формат: "домен:порт[:path=/prefix][:опции...]".
+  # Один домен без path => legacy-вид v1 (байт-в-байт). Несколько записей
+  # на домен: path-правила первыми, затем общее host-правило.
+  local -a w_domains=() w_ports=() w_paths=()
+  local entry
   for entry in "${WEB_SITES[@]+"${WEB_SITES[@]}"}"; do
-    local domain="${entry%%:*}"
-    local port="${entry##*:}"
-    local tag="site_$(echo "$domain" | tr '.' '_')"
-    printf "    acl host_%s hdr(host) -i %s\n" "$tag" "$domain"
-    printf "    use_backend bk_%s if host_%s\n" "$tag" "$tag"
-    printf "\n"
+    parse_entry "$entry"
+    if [ -z "$ENTRY_DOMAINS" ] || [ -z "$ENTRY_PORT" ]; then
+      log_error "  ❌ Бигая запись WEB_SITES: '${entry}' (нужно 'домен:порт[:опции]')"
+      return 1
+    fi
+    if ! validate_domain "$ENTRY_DOMAINS"; then
+      return 1
+    fi
+    if ! validate_port "$ENTRY_PORT" "порт бэкенда"; then
+      return 1
+    fi
+    # shellcheck disable=SC2086
+    local epath
+    epath="$(opt_value path "" ${ENTRY_OPTS[@]+"${ENTRY_OPTS[@]}"})"
+    if [ -n "$epath" ] && [[ "$epath" != /* ]]; then
+      log_error "  ❌ path должен начинаться с '/': '${epath}' (запись '${entry}')"
+      return 1
+    fi
+    w_domains+=("$ENTRY_DOMAINS")
+    w_ports+=("$ENTRY_PORT")
+    w_paths+=("$epath")
+  done
+
+  # Порядок доменов — по первому появлению; path-правила внутри домена — первыми.
+  local -a order=()
+  local d e seen
+  for ((e = 0; e < ${#w_domains[@]}; e++)); do
+    d="${w_domains[e]}"
+    seen=false
+    local o
+    for o in ${order[@]+"${order[@]}"}; do
+      [ "$o" = "$d" ] && seen=true
+    done
+    $seen || order+=("$d")
+  done
+
+  # Тег бэкенда: legacy (без порта), если у домена ровно одна запись без path.
+  # Иначе — с суффиксом порта (детерминированно).
+  web_tag_for() {
+    local dom="$1" port="$2" idx="$3"
+    local count=0
+    local j
+    for ((j = 0; j < ${#w_domains[@]}; j++)); do
+      [ "${w_domains[j]}" = "$dom" ] && count=$((count + 1))
+    done
+    if [ "$count" -eq 1 ] && [ -z "${w_paths[idx]}" ]; then
+      tag_for_domain "$dom"
+    else
+      printf "%s_%s" "$(tag_for_domain "$dom")" "$port"
+    fi
+  }
+
+  local o tag ptag n=0
+  for o in ${order[@]+"${order[@]}"}; do
+    # Сначала path-правила этого домена
+    for ((e = 0; e < ${#w_domains[@]}; e++)); do
+      [ "${w_domains[e]}" = "$o" ] || continue
+      [ -n "${w_paths[e]}" ] || continue
+      tag=$(web_tag_for "$o" "${w_ports[e]}" "$e")
+      ptag="path_${tag}_$((n + 1))"
+      n=$((n + 1))
+      printf "    acl host_%s hdr(host) -i %s\n" "$tag" "$o"
+      printf "    acl %s path_beg %s\n" "$ptag" "${w_paths[e]}"
+      printf "    use_backend bk_%s if host_%s %s\n" "$tag" "$tag" "$ptag"
+    done
+    # Затем общее host-правило (первая беspath-запись домена)
+    for ((e = 0; e < ${#w_domains[@]}; e++)); do
+      [ "${w_domains[e]}" = "$o" ] || continue
+      [ -z "${w_paths[e]}" ] || continue
+      tag=$(web_tag_for "$o" "${w_ports[e]}" "$e")
+      printf "    acl host_%s hdr(host) -i %s\n" "$tag" "$o"
+      printf "    use_backend bk_%s if host_%s\n" "$tag" "$tag"
+      printf "\n"
+      break
+    done
   done
 
   cat << 'EOF'
@@ -607,22 +831,30 @@ EOF
   # Волна 1: кастомные вставки фронта (если есть custom/web-frontend-*.cfg)
   emit_custom "web-frontend-*.cfg"
 
-  # Site backends
-  for entry in "${WEB_SITES[@]+"${WEB_SITES[@]}"}"; do
-    local domain="${entry%%:*}"
-    local port="${entry##*:}"
-    local tag="site_$(echo "$domain" | tr '.' '_')"
+  # Бэкенды: один на уникальную пару (домен, порт).
+  local -a done_be=()
+  local key found
+  for ((e = 0; e < ${#w_domains[@]}; e++)); do
+    key="${w_domains[e]}:${w_ports[e]}"
+    found=false
+    local k
+    for k in ${done_be[@]+"${done_be[@]}"}; do
+      [ "$k" = "$key" ] && found=true
+    done
+    $found && continue
+    done_be+=("$key")
+    tag=$(web_tag_for "${w_domains[e]}" "${w_ports[e]}" "$e")
     printf "backend bk_%s\n" "$tag"
     printf "    mode http\n"
-    printf "    server %s 127.0.0.1:%s\n" "$tag" "$port"
+    printf "    server %s 127.0.0.1:%s\n" "$tag" "${w_ports[e]}"
     printf "\n"
   done
 
-  cat << 'EOF'
-backend bk_blackhole
-    mode http
-    http-request deny
-EOF
+  if [ "$blackhole" = "tarpit" ]; then
+    printf "backend bk_blackhole\n    mode http\n    http-request tarpit\n"
+  else
+    printf "backend bk_blackhole\n    mode http\n    http-request deny\n"
+  fi
   # Волна 1: кастомные вставки бэкендов (если есть custom/web-backend-*.cfg)
   emit_custom "web-backend-*.cfg"
 }
@@ -634,6 +866,7 @@ generate_configs() {
   if [ -f "$SITES_CONF" ]; then
     WEB_SITES=()
     REALITY_SITES=()
+    GLOBAL_OPTS=()
     if ! source "$SITES_CONF" 2>/dev/null; then
       log_error "  ❌ Ошибка чтения ${SITES_CONF}"
       return 1
@@ -676,4 +909,44 @@ generate_configs() {
   mv "$tmp_web" "${HAPROXY_DIR}/web/haproxy.cfg"
 
   log_info "  ✅ Конфиги обновлены (бэкап предыдущего — в .backup/)"
+}
+
+# Волна 2: предпросмотр — что изменит перегенерация, не трогая живые файлы.
+# Возврат: 0 — различий нет, 1 — есть различия (показывает diff).
+preview_configs() {
+  if [ ! -f "$SITES_CONF" ]; then
+    log_error "❌ sites.conf не найден"
+    return 1
+  fi
+  WEB_SITES=()
+  REALITY_SITES=()
+  GLOBAL_OPTS=()
+  if ! source "$SITES_CONF" 2>/dev/null; then
+    log_error "  ❌ Ошибка чтения ${SITES_CONF}"
+    return 1
+  fi
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmpdir'" RETURN
+  generate_stream_config > "$tmpdir/stream.cfg" || return 1
+  generate_web_config > "$tmpdir/web.cfg" || return 1
+  local diffs=0
+  local live
+  for live in "stream:$tmpdir/stream.cfg:${HAPROXY_DIR}/stream/haproxy.cfg" \
+              "web:$tmpdir/web.cfg:${HAPROXY_DIR}/web/haproxy.cfg"; do
+    local name="${live%%:*}"
+    local rest="${live#*:}"
+    local newf="${rest%%:*}"
+    local oldf="${rest#*:}"
+    if [ ! -f "$oldf" ]; then
+      printf "  ${YELLOW}~ %s: живого файла нет, будет создан${NC}\n" "$name"
+      diffs=$((diffs + 1))
+    elif ! diff -u "$oldf" "$newf"; then
+      diffs=$((diffs + 1))
+    else
+      printf "  ${GREEN}= %s: без изменений${NC}\n" "$name"
+    fi
+  done
+  return "$diffs"
 }
