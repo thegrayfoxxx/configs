@@ -109,10 +109,9 @@ haproxy/
 │   ├── web-frontend-*.cfg        # -> конец frontend ft_https_terminated
 │   └── web-backend-*.cfg         # -> конец web-бэкендов
 ├── presets/                      # библиотека сценариев (в git, тут живет конкретика xray/reality)
-│   ├── reality-selfsteal/        # SNI в xray + web-заглушка + PROXY-пара
-│   ├── xhttp-path-split/         # домен: /data/ -> Xray, остальное в stub + CDN-заметки
-│   ├── multi-site-l7/            # пачка сайтов + blackhole
-│   └── twin-frontends/           # два stream-уха (public+internal) + один web
+│   ├── web-direct/              # web на :443 напрямую (sites или xhttp-сплит, без стрима)
+│   ├── xray-direct/             # Xray на :443, web только как fallback-таргет
+│   └── stream-vision/           # stream делит по SNI (SELFSTEAL x WEB_MODE: sites/xhttp)
 ├── stream/
 │   ├── haproxy.cfg               # генерируется из sites.conf
 │   └── haproxy.cfg.example       # шаблон
@@ -137,9 +136,10 @@ haproxy/
     │   ├── backups.sh            # бэкапы и откат
     │   ├── init.sh               # чистый старт (сервисы → конфиг → up)
     │   ├── migrate.sh            # миграция sites.conf v1/v2 → v3
-    │   ├── preset.sh             # движок пресетов (list/show/apply/diff/new)
+    │   ├── preset.sh             # движок пресетов (list/show/apply/diff/new, when/#if)
+    │   ├── global.sh             # глобальные опции (таймауты/бинды/PROXY/blackhole/логи)
     │   └── update.sh             # обновление из репозитория по allowlist (с бэкапом)
-    ├── *.sh                      # тонкие шимы в commands/ (cert/services/backups/migrate/preset/update/init)
+    ├── *.sh                      # тонкие шимы в commands/ (cert/services/backups/migrate/preset/update/init/global)
     └── lib/common.sh             # ядро: парсеры v3, генераторы, docker/svc, бэкапы, валидация
 ```
 
@@ -187,8 +187,8 @@ cd haproxy
 2. Сгенерирует конфиги
 3. Предложит перезапустить сервисы
 
-> Нужен xray/reality-сценарий целиком? Раздел 4 меню → пресет `reality-selfsteal`
-> (конкретика живет в пресетах, ядро нейтрально).
+> Нужен xray/reality-сценарий целиком? Раздел 4 меню → пресет `stream-vision`
+> (vision-ветка + web; конкретика живет в пресетах, ядро нейтрально).
 
 ---
 
@@ -463,7 +463,8 @@ WEB_FRONTENDS=(
   валидация, save — как обычно)
 
 Управление: разделы Stream/Web → пункт «Фронтенды» (добавить/изменить/удалить/список).
-Готовый сценарий: пресет `twin-frontends` (раздел 4 меню).
+Второе ухо (два stream-фронтенда) делается вручную через `frontend=` + merge:
+ядро и генератор это умеют, отдельного пресета нет.
 
 ---
 
@@ -495,7 +496,7 @@ WEB_BACKENDS=(
 со счетчиком маршрутов); при добавлении маршрута — выбор ящика списком
 или новый адрес. Имя ящика неизменно (на него ссылаются маршруты) —
 остальное правится на месте с показом было/стало и числом затронутых маршрутов.
-Готовые сценарии: пресеты `reality-selfsteal`, `xhttp-path-split` (раздел 4 меню).
+Готовые сценарии: пресет `stream-vision` (раздел 4 меню).
 
 ---
 
@@ -754,23 +755,31 @@ backend bk_blackhole
 
 ## Пресеты
 
-Готовые сценарии в `presets/<имя>/`: `preset.conf` (шаблон `sites.conf` с `{{VAR}}`),
-`questions` (вопросы визарда `VAR|промпт|дефолт|валидатор`), `README.md`, `custom/` (оверлей).
+Готовые сценарии в `presets/<имя>/`: `preset.conf` (шаблон `sites.conf` с `{{VAR}}`
+и условными блоками `#if COND ... #else ... #endif`),
+`questions` (вопросы визарда `VAR|промпт|дефолт|валидатор[|when:COND]`), `README.md`, `custom/` (оверлей).
+
+> Управляем только HAProxy. Xray/nginx/static/CDN — отдельно, в пресетах только
+> стык (порты/домены/path/SNI). Примеры чужих конфигов в README пресетов — для сверки.
 
 Валидаторы визарда: `any`, `nonempty`, `domain`, `port`, `email`, `bind`
 (`host:порт`), `snis` (домены через пробел), `hostport` (порт или `host:порт`),
 `path` (с `/`), `oneof:a,b` (строго из списка), `list:domainport`, `list:hostport`.
+COND: `VAR==val[&&VAR2!=val2]`, значения через запятую = ИЛИ. Вопрос с `when:`
+задается только если условие выполнено; блок `#if` попадает в рендер только
+если условие выполнено (плейсхолдеры из выключенных веток ответов не требуют).
 Мусор отклоняется сразу в визарде (и в `--answers`), а не на генерации.
 
 ```bash
-./haproxy.sh → раздел 4
+./haproxy.sh → раздел 4   # выбор пресета номером из списка
 # или напрямую:
 ./scripts/commands/preset.sh list                  # список
-./scripts/commands/preset.sh show xhttp-path-split # README + вопросы
-./scripts/commands/preset.sh apply xhttp-path-split        # визард → diff → потери → запись → generate
-./scripts/commands/preset.sh apply multi-site-l7 --dry-run --answers ans.txt  # только конфиг на stdout
-./scripts/commands/preset.sh apply multi-site-l7 --merge --yes --answers ans.txt  # слить с текущим без вопросов
-./scripts/commands/preset.sh diff reality-selfsteal        # дефолты vs текущий sites.conf
+./scripts/commands/preset.sh show                  # выбор номером + README + вопросы
+./scripts/commands/preset.sh show stream-vision    # README + вопросы сразу
+./scripts/commands/preset.sh apply                 # выбор номером → визард → diff → потери → запись → generate
+./scripts/commands/preset.sh apply web-direct --dry-run --answers ans.txt  # только конфиг на stdout
+./scripts/commands/preset.sh apply web-direct --merge --yes --answers ans.txt  # слить с текущим без вопросов
+./scripts/commands/preset.sh diff xray-direct              # дефолты vs текущий sites.conf
 ./scripts/commands/preset.sh new my-preset                 # скелет своего пресета (v3)
 ```
 
@@ -785,11 +794,14 @@ backend bk_blackhole
 перенаправлять в файл. Неинтерактивный ввод визарда — через файл:
 `PRESET_TTY=ответы.txt` (по строке на вопрос, пустая строка = дефолт/готово).
 
-Встроенные: `reality-selfsteal` (SNI в xray + web-заглушка + PROXY-пара),
-`xhttp-path-split` (домен: `/data/` в Xray, остальное в stub + CDN-заметки),
-`multi-site-l7` (пачка сайтов + blackhole),
-`twin-frontends` (два stream-уха public/internal + один web). Детали, требования к xray/CDN
-и проверки — в `presets/<имя>/README.md`.
+Встроенные (фронт `:443` → режим):
+`web-direct` (web напрямую: `WEB_MODE=sites` — N сайтов, `xhttp-split` — path-сплит без стрима),
+`xray-direct` (Xray напрямую, web только fallback-таргет),
+`stream-vision` (stream делит по SNI; матрица `SELFSTEAL=no/yes × WEB_MODE=sites/xhttp-split`).
+Детали, требования к xray/CDN и проверки — в `presets/<имя>/README.md`.
+
+Какой брать: нет reality — `web-direct` (или `xray-direct` если `:443` уже у Xray);
+есть vision — `stream-vision`. Стрим без reality не нужен (SNI делить нечего).
 
 ---
 
@@ -843,7 +855,10 @@ GLOBAL_OPTS=(
 флаг один — правило не нужно).
 
 Все ключи с комментариями — в `sites.conf.example`. Миграция v1/v2→v3:
-раздел 6 меню (`migrate.sh`, есть `--dry-run`). Подробнее — `MIGRATION.md`.
+раздел 6 меню (`migrate.sh`, есть `--dry-run`). Глобальные опции
+(таймауты/бинды/PROXY/blackhole/логи) правятся там же: раздел 6 →
+«Глобальные опции» (`global.sh`, есть `--show` / `--set K=V`).
+Подробнее — `MIGRATION.md`.
 
 ---
 

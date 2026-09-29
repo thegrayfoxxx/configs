@@ -75,4 +75,7 @@ per-entry PROXY (`proxy=v2` в записи — бэкенд должен его
 (`STREAM_BACKENDS`/`WEB_BACKENDS`) — аддитивные фичи: файлы без этих массивов
 работают как раньше (один фронтенд из `bind_*`, адреса инлайн через `to=`),
 миграция не нужна. Подробности — разделы «Фронтенды» и «Бэкенды» в `README.md`,
-готовые сценарии — пресеты `twin-frontends`, `reality-selfsteal`, `xhttp-path-split`.
+готовые сценарии — пресеты `web-direct`, `xray-direct`, `stream-vision`
+(старые `twin-frontends`, `reality-selfsteal`, `xhttp-path-split`, `multi-site-l7`
+удалены: `twin` делается через `frontend=` вручную, остальные покрыты
+опциями `WEB_MODE`/`SELFSTEAL` новых баз).

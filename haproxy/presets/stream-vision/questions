@@ -1,0 +1,21 @@
+# Формат: VAR|промпт|дефолт|валидатор[|when:COND]
+# COND: VAR==val[&&VAR2!=val2], значения через запятую = ИЛИ.
+ACME_EMAIL|Email для ACME|mail@example.com|email
+SELFSTEAL|Селфстил (yes — REALITY SNI совпадает со stub-доменом)|no|oneof:no,yes
+WEB_MODE|Режим web (sites — сайты, xhttp-split — path-сплит в Xray)|sites|oneof:sites,xhttp-split
+SITES_LINES|Сайты: домен и бэкенд||list:hostport|when:WEB_MODE==sites
+STUB_DOMAIN|Домен заглушки (для SELFSTEAL=yes сюда же смотрит REALITY)|drop.example.com|domain|when:WEB_MODE==xhttp-split&&SELFSTEAL==yes
+XHTTP_DOMAIN|Домен XHTTP (он же SNI для CDN, при SELFSTEAL второй домен)|x.cdn.example.com|domain|when:WEB_MODE==xhttp-split
+XHTTP_PORT|Порт бэкенда Xray XHTTP (plain HTTP, security:none)|11443|port|when:WEB_MODE==xhttp-split
+XHTTP_PATH|Path API XHTTP (должен совпадать с path в Xray)|/data/|path|when:WEB_MODE==xhttp-split
+STUB_PORT|Порт заглушки (статика; при SELFSTEAL=yes — таргет reality)|8080|port|when:WEB_MODE==xhttp-split
+REALITY_DOMAINS|Домены reality через пробел (SNI vision-клиентов; для селфстила = stub-домен)|vpn.example.com|snis
+XRAY_PORT|Порт Xray reality-inbound (слушает loopback)|10443|port
+XRAY_PROXY|Слать PROXY в Xray (требует acceptProxyProtocol в Xray!)|v2|oneof:off,v1,v2
+STREAM_WEB_PROXY|Слать PROXY из stream в web|v2|oneof:off,v1,v2
+WEB_ACCEPT_PROXY|Читать PROXY на web (парно к предыдущему!)|on|oneof:off,on
+BLACKHOLE|Режим blackhole для чужих SNI/Host|deny|oneof:deny,tarpit
+TIMEOUT_PROFILE|Профиль таймаутов (sites-50s — обычные, xhttp-1h — долгие сессии)|xhttp-1h|oneof:sites-50s,xhttp-1h
+BACKEND_CHECK|Healthcheck-и бэкендов (tcp шумит в логах Xray)|off|oneof:off,tcp
+STREAM_LOG_SNI|Писать SNI в stream-лог|off|oneof:off,on
+LOGS_CAPTURE|Capture Host и X-Forwarded-For в web-лог|off|oneof:off,on

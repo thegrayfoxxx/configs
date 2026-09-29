@@ -14,6 +14,7 @@ proj = pathlib.Path(sys.argv[1])
 files = ["haproxy.sh", "scripts/commands/stream.sh", "scripts/commands/web.sh",
          "scripts/commands/cert.sh", "scripts/commands/services.sh",
          "scripts/commands/backups.sh", "scripts/commands/preset.sh",
+         "scripts/commands/global.sh",
          "scripts/ui/logs.sh"]
 bad = 0
 for rel in files:

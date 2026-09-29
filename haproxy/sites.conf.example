@@ -1,5 +1,8 @@
 # HAProxy конфигурация (v3) — пример
 # Скопируй как sites.conf и отредактируй. Миграция с v1/v2: migrate.sh.
+# Готовые сценарии: раздел 4 меню (пресеты web-direct/xray-direct/stream-vision).
+# Глобальные опции удобно править через раздел 6 («Глобальные опции», global.sh).
+# Управляем только HAProxy: Xray/nginx — отдельно, тут только стык.
 #
 # Правила формата:
 #   STREAM_ROUTES: "sni=<домены через пробел|default> to=<host:порт>|use=<ящик>[ proxy=off|v1|v2][ name=<метка>][ log=on|off][ frontend=<имя>]"
