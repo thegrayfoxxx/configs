@@ -12,7 +12,7 @@ cmd_validate() {
   validate_cfg "${HAPROXY_DIR}/stream/haproxy.cfg" || rc=1
   validate_cfg "${HAPROXY_DIR}/web/haproxy.cfg" || rc=1
   if [ "$rc" -eq 0 ]; then
-    log_info "✅ Оба конфига в порядке (или haproxy нет для проверки)"
+    log_info "✅ Оба конфига в порядке"
   fi
   menu_pause
 }

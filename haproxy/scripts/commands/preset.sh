@@ -150,9 +150,11 @@ ask() { # ask VAR "промпт" "дефолт" валидатор -> печат
       snis)
         # Домены через пробел (SNI-список).
         if [ -n "$ans" ]; then
-          local _d _ok=true
-          # shellcheck disable=SC2086
-          for _d in $ans; do
+          local _d _ok=true _di
+          local -a _snis=()
+          read -ra _snis <<< "$ans" || true
+          for ((_di = 0; _di < ${#_snis[@]}; _di++)); do
+            _d="${_snis[$_di]}"
             validate_domain "$_d" 2>/dev/null || _ok=false
           done
           if [ "$_ok" = true ]; then printf "%s" "$ans"; return 0; fi
@@ -180,14 +182,15 @@ ask() { # ask VAR "промпт" "дефолт" валидатор -> печат
       oneof:*)
         # oneof:a,b,c — значение обязано совпасть с одним из вариантов
         # (запятая, т.к. pipe занят разделителем формата questions).
-        local _opts="${validator#oneof:}" _o _match=false
+        local _opts="${validator#oneof:}" _o _match=false _oi
         local _old_ifs="$IFS"
-        IFS=','
-        # shellcheck disable=SC2086
-        for _o in $_opts; do
+        local -a _optlist=()
+        IFS=',' read -ra _optlist <<< "$_opts" || true
+        IFS="$_old_ifs"
+        for ((_oi = 0; _oi < ${#_optlist[@]}; _oi++)); do
+          _o="${_optlist[$_oi]}"
           [ "$ans" = "$_o" ] && _match=true
         done
-        IFS="$_old_ifs"
         if [ "$_match" = true ]; then
           printf "%s" "$ans"; return 0
         else
@@ -247,14 +250,14 @@ cond_satisfied() {
     else
       cur=""
     fi
-    local hit=false o _ifs="$IFS"
-    IFS=','
-    # shellcheck disable=SC2086
-    for o in $want; do
-      o="$(printf "%s" "$o" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    local hit=false o _oi _ifs="$IFS"
+    local -a _want=()
+    IFS=',' read -ra _want <<< "$want" || true
+    IFS="$_ifs"
+    for ((_oi = 0; _oi < ${#_want[@]}; _oi++)); do
+      o="$(printf "%s" "${_want[$_oi]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
       [ "$cur" = "$o" ] && hit=true
     done
-    IFS="$_ifs"
     if [ "$op" = "==" ] && [ "$hit" != true ]; then
       return 1
     fi
@@ -321,9 +324,11 @@ collect() {
           email) [[ "${PGIVEN[$var]}" =~ ^[^@]+@[^@]+\.[^@]+$ ]] || { log_error "  ❌ Битый email в answers"; return 1; } ;;
           bind) [[ "${PGIVEN[$var]}" =~ ^[^:]+:[0-9]+$ ]] && validate_port "${PGIVEN[$var]##*:}" "порт" 2>/dev/null || return 1 ;;
           snis)
-            local _d
-            # shellcheck disable=SC2086
-            for _d in ${PGIVEN[$var]}; do
+            local _d _di
+            local -a _snis=()
+            read -ra _snis <<< "${PGIVEN[$var]}" || true
+            for ((_di = 0; _di < ${#_snis[@]}; _di++)); do
+              _d="${_snis[$_di]}"
               validate_domain "$_d" 2>/dev/null || return 1
             done
             [ -n "${PGIVEN[$var]}" ] || return 1
@@ -336,13 +341,14 @@ collect() {
             ;;
           path) [[ "${PGIVEN[$var]}" == /* ]] || return 1 ;;
           oneof:*)
-            local _opts="${validator#oneof:}" _o _hit=false _sifs="$IFS"
-            IFS=','
-            # shellcheck disable=SC2086
-            for _o in $_opts; do
+            local _opts="${validator#oneof:}" _o _hit=false _sifs="$IFS" _oi
+            local -a _optlist=()
+            IFS=',' read -ra _optlist <<< "$_opts" || true
+            IFS="$_sifs"
+            for ((_oi = 0; _oi < ${#_optlist[@]}; _oi++)); do
+              _o="${_optlist[$_oi]}"
               [ "${PGIVEN[$var]}" = "$_o" ] && _hit=true
             done
-            IFS="$_sifs"
             [ "$_hit" = true ] || { log_error "  ❌ ${var} вне допустимых: $(echo "$_opts" | tr ',' ' ')"; return 1; }
             ;;
           *) log_error "  ❌ Неизвестный валидатор '${validator}'"; return 1 ;;
@@ -653,7 +659,7 @@ preset_losses() {
   WEB_ROUTES=()
   GLOBAL_OPTS=()
   # shellcheck disable=SC1090
-  if ! source "$rendered" 2>/dev/null; then
+  if ! source_sites_file "$rendered" 2>/dev/null; then
     STREAM_FRONTENDS=("${s_fe_s[@]}")
     WEB_FRONTENDS=("${s_fe_w[@]}")
     STREAM_BACKENDS=("${s_be_s[@]}")
@@ -861,7 +867,7 @@ preset_merge_rendered() {
   STREAM_ROUTES=()
   WEB_ROUTES=()
   # shellcheck disable=SC1090
-  if ! source "$rendered" 2>/dev/null; then
+  if ! source_sites_file "$rendered" 2>/dev/null; then
     log_error "  ❌ Не читается рендер пресета" >&2
     return 1
   fi

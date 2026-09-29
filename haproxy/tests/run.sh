@@ -6,6 +6,10 @@ TDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJ="$TDIR/.."
 fail=0
 
+# Fail-closed по дефолту требует бинарник haproxy для валидации — в CI/dev его
+# нет, поэтому тесты явно разрешают пропуск (прод так не делает).
+export HAPROXY_NO_VALIDATE=1
+
 printf "== bash -n ==\n"
 while IFS= read -r f; do
   if bash -n "$f"; then

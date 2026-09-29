@@ -102,7 +102,7 @@ print_status_box() {
     STREAM_BACKENDS=()
     WEB_BACKENDS=()
     GLOBAL_OPTS=()
-    source "$SITES_CONF" 2>/dev/null
+    source_sites_file "$SITES_CONF" 2>/dev/null
     legacy_to_v3_arrays 2>/dev/null || true
     site_count=${#WEB_ROUTES[@]}
     reality_count=${#STREAM_ROUTES[@]}
@@ -197,7 +197,7 @@ print_section_status() {
     STREAM_BACKENDS=()
     WEB_BACKENDS=()
     GLOBAL_OPTS=()
-    source "$SITES_CONF" 2>/dev/null
+    source_sites_file "$SITES_CONF" 2>/dev/null
     legacy_to_v3_arrays 2>/dev/null || true
     if [ "$kind" = "stream" ]; then
       routes=(${STREAM_ROUTES[@]+"${STREAM_ROUTES[@]}"})
@@ -359,8 +359,11 @@ interactive_setup() {
   local stream_to="" stream_name="sni-1"
   if [ -n "$stream_sni" ]; then
     local _d bad_sni=false
-    # shellcheck disable=SC2086
-    for _d in $stream_sni; do
+    local -a _sni_toks=()
+    read -ra _sni_toks <<< "$stream_sni" || true
+    local _di
+    for ((_di = 0; _di < ${#_sni_toks[@]}; _di++)); do
+      _d="${_sni_toks[$_di]}"
       if ! validate_domain "$_d" 2>/dev/null; then
         log_error "  ❌ Битый SNI '${_d}' — пропускаю stream-секцию, маршруты добавишь в меню"
         bad_sni=true
@@ -465,8 +468,11 @@ legacy_to_v3_arrays() {
       return 1
     fi
     local _d
-    # shellcheck disable=SC2086
-    for _d in $ENTRY_DOMAINS; do
+    local -a _dom_toks=()
+    read -ra _dom_toks <<< "$ENTRY_DOMAINS" || true
+    local _di
+    for ((_di = 0; _di < ${#_dom_toks[@]}; _di++)); do
+      _d="${_dom_toks[$_di]}"
       validate_domain "$_d" >&2 || return 1
     done
     validate_port "$ENTRY_PORT" "порт" >&2 || return 1
@@ -526,10 +532,50 @@ load_sites() {
   WEB_FRONTENDS=()
   STREAM_BACKENDS=()
   WEB_BACKENDS=()
-  if ! source "$SITES_CONF"; then
+  if ! source_sites_file "$SITES_CONF"; then
     die "❌ Ошибка чтения ${SITES_CONF}. Проверь синтаксис файла."
   fi
   legacy_to_v3_arrays
+}
+
+# source_sites_file <файл> — source конфига с защитой служебного окружения.
+# sites.conf исполняется как bash: кривой файл не должен уводить HAPROXY_DIR /
+# BACKUP_DIR (rm -rf!), PATH / IFS, основание ротации и переопределять функции.
+# Данные (массивы маршрутов, ACME_EMAIL) остаются из файла.
+source_sites_file() {
+  local _f="$1"
+  local _hap="${HAPROXY_DIR:-}" _sites="${SITES_CONF:-}" _bak="${BACKUP_DIR:-}"
+  local _keep="${BACKUP_KEEP:-10}" _custom="${CUSTOM_DIR:-}" _en="${ENABLED_FILE:-}"
+  local _lib="${LIB_DIR:-}" _svc="${SVC_ALL:-}" _path="$PATH" _ifs="$IFS"
+  local _fns_before _fns_after
+  _fns_before=$(declare -F | awk '{print $NF}')
+  local _rc=0
+  source "$_f" 2>/dev/null || _rc=1
+  _fns_after=$(declare -F | awk '{print $NF}')
+  # Служебное — назад безусловно (и при успехе, и при ошибке).
+  HAPROXY_DIR="$_hap"
+  SITES_CONF="$_sites"
+  BACKUP_DIR="$_bak"
+  BACKUP_KEEP="$_keep"
+  CUSTOM_DIR="$_custom"
+  ENABLED_FILE="$_en"
+  LIB_DIR="$_lib"
+  SVC_ALL="$_svc"
+  PATH="$_path"
+  IFS="$_ifs"
+  # Чужие функции из конфига — выкинуть (имена функций — идентификаторы, glob нет).
+  local _fn _known
+  for _fn in $_fns_after; do
+    _known=false
+    local _b
+    for _b in $_fns_before; do
+      [ "$_b" = "$_fn" ] && _known=true
+    done
+    if [ "$_known" = false ]; then
+      unset -f "$_fn" 2>/dev/null || true
+    fi
+  done
+  return "$_rc"
 }
 
 save_sites() {
@@ -649,12 +695,18 @@ rollback_backup() {
 }
 
 # --- ВАЛИДАЦИЯ КОНФИГОВ (волна 1) ---
-# Проверяет haproxy-конфиг. Возврат: 0 ок/проверка невозможна, 1 битый конфиг.
+# Проверяет haproxy-конфиг. Возврат: 0 ок, 1 битый конфиг / нет haproxy для проверки.
+# Fail-closed: без бинарника генерация НЕ пишет файлы (иначе битый конфиг попал бы
+# в прод молча). Обход только явный: HAPROXY_NO_VALIDATE=1 (тесты/CI без haproxy).
 validate_cfg() {
   local file="$1"
   if ! command -v haproxy >/dev/null 2>&1; then
-    log_warn "  ⚠  haproxy не найден — пропускаю валидацию ${file}"
-    return 0
+    if [ -n "${HAPROXY_NO_VALIDATE:-}" ]; then
+      log_warn "  ⚠  haproxy не найден (HAPROXY_NO_VALIDATE=1) — пропускаю валидацию ${file}"
+      return 0
+    fi
+    log_error "  ❌ haproxy не найден — не могу проверить ${file} (обход: HAPROXY_NO_VALIDATE=1)"
+    return 1
   fi
   if haproxy -c -V -f "$file" >/dev/null 2>&1; then
     return 0
@@ -662,6 +714,30 @@ validate_cfg() {
   log_error "  ❌ Битый конфиг: ${file}"
   haproxy -c -V -f "$file" 2>&1 | head -20 || true
   return 1
+}
+
+# validate_duration <значение> <имя> — формат таймаута haproxy (число + us/ms/s/m/h/d).
+validate_duration() {
+  local val="$1" name="${2:-таймаут}"
+  if [[ "$val" =~ ^[0-9]+(us|ms|s|m|h|d)$ ]]; then
+    return 0
+  fi
+  log_error "  ❌ Некорректный ${name}: '${val}' (жди число+единицу: us/ms/s/m/h/d)" >&2
+  return 1
+}
+
+# validate_host <хост> <имя> — хост из to=/bind= (без пробелов/пустоты; '*' только для bind).
+validate_host() {
+  local host="$1" name="${2:-хост}"
+  if [ -z "$host" ]; then
+    log_error "  ❌ Пустой ${name}" >&2
+    return 1
+  fi
+  if [[ "$host" =~ [[:space:]] ]]; then
+    log_error "  ❌ Пробел в ${name}: '${host}'" >&2
+    return 1
+  fi
+  return 0
 }
 
 # --- СЕРВИСЫ: профили compose (волна 1) ---
@@ -789,10 +865,17 @@ tag_for_domain() {
   printf "site_%s" "$(echo "$1" | tr '.' '_')"
 }
 
+# ff_list — forwardfor_backends без пробелов (иначе "bk_a, bk_b" не матчится).
+ff_list() {
+  local ff
+  ff="$(cfg_opt forwardfor_backends "")"
+  printf "%s" "${ff//[[:space:]]/}"
+}
+
 # maybe_forwardfor <тег> — печатает "    option forwardfor", если bk_<тег>
 # перечислен в forwardfor_backends (иначе ничего).
 maybe_forwardfor() {
-  if [[ ",$(cfg_opt forwardfor_backends "")," == *",bk_$1,"* ]]; then
+  if [[ ",$(ff_list)," == *",bk_$1,"* ]]; then
     printf "    option forwardfor\n"
   fi
 }
@@ -843,8 +926,12 @@ parse_stream_route() {
   S3_FRONTEND=""
   S3_USE=""
   local tok key val seen_other=false seen_keys=""
-  # shellcheck disable=SC2086
-  for tok in $entry; do
+  # Без glob: read -ra сплитит как for, но не раскрывает */? в имена файлов.
+  local -a _toks=()
+  read -ra _toks <<< "$entry" || true
+  local _ti
+  for ((_ti = 0; _ti < ${#_toks[@]}; _ti++)); do
+    tok="${_toks[$_ti]}"
     if [[ "$tok" == *=* ]]; then
       key="${tok%%=*}"
       val="${tok#*=}"
@@ -941,14 +1028,18 @@ parse_stream_route() {
       log_error "  ❌ to: жди host:порт, получил '${S3_TO}'" >&2
       return 1
     fi
+    validate_host "$_h" "хост бэкенда" >&2 || return 1
     if ! validate_port "$_p" "порт бэкенда" >&2; then
       return 1
     fi
   fi
   if [ "$S3_SNI" != "default" ]; then
     local _d
-    # shellcheck disable=SC2086
-    for _d in $S3_SNI; do
+    local -a _sni2_toks=()
+    read -ra _sni2_toks <<< "$S3_SNI" || true
+    local _di
+    for ((_di = 0; _di < ${#_sni2_toks[@]}; _di++)); do
+      _d="${_sni2_toks[$_di]}"
       if [ "$_d" = "default" ]; then
         log_error "  ❌ sni=default — отдельная запись, не часть списка: '${entry}'" >&2
         return 1
@@ -980,8 +1071,12 @@ parse_web_route() {
   W3_FRONTEND=""
   W3_USE=""
   local tok key val seen_keys=""
-  # shellcheck disable=SC2086
-  for tok in $entry; do
+  # Без glob: read -ra сплитит как for, но не раскрывает */? в имена файлов.
+  local -a _toks=()
+  read -ra _toks <<< "$entry" || true
+  local _ti
+  for ((_ti = 0; _ti < ${#_toks[@]}; _ti++)); do
+    tok="${_toks[$_ti]}"
     if [[ "$tok" != *=* ]]; then
       log_error "  ❌ Битый web-маршрут (голый токен '${tok}'): '${entry}'" >&2
       return 1
@@ -1045,6 +1140,7 @@ parse_web_route() {
       log_error "  ❌ to: жди host:порт, получил '${W3_TO}'" >&2
       return 1
     fi
+    validate_host "$_h" "хост бэкенда" >&2 || return 1
     validate_port "$_p" "порт бэкенда" >&2 || return 1
   fi
   if [ -n "$W3_PATH" ] && [[ "$W3_PATH" != /* ]]; then
@@ -1083,8 +1179,12 @@ parse_frontend() {
   F_BIND=""
   F_LOG="on"
   local tok key val seen_keys=""
-  # shellcheck disable=SC2086
-  for tok in $entry; do
+  # Без glob: read -ra сплитит как for, но не раскрывает */? в имена файлов.
+  local -a _toks=()
+  read -ra _toks <<< "$entry" || true
+  local _ti
+  for ((_ti = 0; _ti < ${#_toks[@]}; _ti++)); do
+    tok="${_toks[$_ti]}"
     if [[ "$tok" != *=* ]]; then
       log_error "  ❌ Битый фронтенд (голый токен '${tok}'): '${entry}'" >&2
       return 1
@@ -1124,6 +1224,7 @@ parse_frontend() {
     log_error "  ❌ bind: жди host:порт, получил '${F_BIND}'" >&2
     return 1
   fi
+  validate_host "$_h" "хост фронтенда" >&2 || return 1
   validate_port "$_p" "порт фронтенда" >&2 || return 1
   case "$F_LOG" in
     on | off) ;;
@@ -1154,8 +1255,12 @@ parse_stream_backend() {
   B_PROXY="off"
   B_LOG="on"
   local tok key val seen_keys=""
-  # shellcheck disable=SC2086
-  for tok in $entry; do
+  # Без glob: read -ra сплитит как for, но не раскрывает */? в имена файлов.
+  local -a _toks=()
+  read -ra _toks <<< "$entry" || true
+  local _ti
+  for ((_ti = 0; _ti < ${#_toks[@]}; _ti++)); do
+    tok="${_toks[$_ti]}"
     if [[ "$tok" != *=* ]]; then
       log_error "  ❌ Битый stream-бэкенд (голый токен '${tok}'): '${entry}'" >&2
       return 1
@@ -1196,6 +1301,7 @@ parse_stream_backend() {
     log_error "  ❌ to: жди host:порт, получил '${B_TO}'" >&2
     return 1
   fi
+  validate_host "$_h" "хост бэкенда" >&2 || return 1
   validate_port "$_p" "порт бэкенда" >&2 || return 1
   case "$B_PROXY" in
     off | v1 | v2) ;;
@@ -1220,8 +1326,12 @@ parse_web_backend() {
   B_PROXY="off"
   B_LOG="on"
   local tok key val seen_keys=""
-  # shellcheck disable=SC2086
-  for tok in $entry; do
+  # Без glob: read -ra сплитит как for, но не раскрывает */? в имена файлов.
+  local -a _toks=()
+  read -ra _toks <<< "$entry" || true
+  local _ti
+  for ((_ti = 0; _ti < ${#_toks[@]}; _ti++)); do
+    tok="${_toks[$_ti]}"
     if [[ "$tok" != *=* ]]; then
       log_error "  ❌ Битый web-бэкенд (голый токен '${tok}'): '${entry}'" >&2
       return 1
@@ -1265,6 +1375,7 @@ parse_web_backend() {
     log_error "  ❌ to: жди host:порт, получил '${B_TO}'" >&2
     return 1
   fi
+  validate_host "$_h" "хост бэкенда" >&2 || return 1
   validate_port "$_p" "порт бэкенда" >&2 || return 1
   case "$B_LOG" in
     on | off) ;;
@@ -1618,6 +1729,12 @@ generate_stream_v3() {
   t_client=$(cfg_opt timeout_client 50s)
   t_server=$(cfg_opt timeout_server 50s)
   t_tunnel=$(cfg_opt timeout_tunnel "")
+  validate_duration "$t_conn" "timeout connect" || return 1
+  validate_duration "$t_client" "timeout client" || return 1
+  validate_duration "$t_server" "timeout server" || return 1
+  if [ -n "$t_tunnel" ]; then
+    validate_duration "$t_tunnel" "timeout tunnel" || return 1
+  fi
   bind_stream=$(cfg_opt bind_stream "*:443")
   local check_sfx=""
   if [ "$(cfg_opt backend_check off)" = "tcp" ]; then
@@ -2285,6 +2402,12 @@ generate_web_v3() {
   t_client=$(cfg_opt timeout_client 50s)
   t_server=$(cfg_opt timeout_server 50s)
   t_tunnel=$(cfg_opt timeout_tunnel "")
+  validate_duration "$t_conn" "timeout connect" || return 1
+  validate_duration "$t_client" "timeout client" || return 1
+  validate_duration "$t_server" "timeout server" || return 1
+  if [ -n "$t_tunnel" ]; then
+    validate_duration "$t_tunnel" "timeout tunnel" || return 1
+  fi
   bind_web=$(cfg_opt bind_web "*:8443")
   blackhole=$(cfg_opt blackhole "deny")
   case "$blackhole" in
@@ -2550,6 +2673,12 @@ generate_stream_config() {
   t_client=$(cfg_opt timeout_client 50s)
   t_server=$(cfg_opt timeout_server 50s)
   t_tunnel=$(cfg_opt timeout_tunnel "")
+  validate_duration "$t_conn" "timeout connect" || return 1
+  validate_duration "$t_client" "timeout client" || return 1
+  validate_duration "$t_server" "timeout server" || return 1
+  if [ -n "$t_tunnel" ]; then
+    validate_duration "$t_tunnel" "timeout tunnel" || return 1
+  fi
   bind_stream=$(cfg_opt bind_stream "*:443")
   # Волна 3: PROXY в web-бэкенд + healthcheck-суффиксы server-строк.
   local swp swp_sfx check_sfx=""
@@ -2687,6 +2816,12 @@ generate_web_config() {
   t_client=$(cfg_opt timeout_client 50s)
   t_server=$(cfg_opt timeout_server 50s)
   t_tunnel=$(cfg_opt timeout_tunnel "")
+  validate_duration "$t_conn" "timeout connect" || return 1
+  validate_duration "$t_client" "timeout client" || return 1
+  validate_duration "$t_server" "timeout server" || return 1
+  if [ -n "$t_tunnel" ]; then
+    validate_duration "$t_tunnel" "timeout tunnel" || return 1
+  fi
   bind_web=$(cfg_opt bind_web "*:8443")
   blackhole=$(cfg_opt blackhole "deny")
   case "$blackhole" in
@@ -2856,9 +2991,7 @@ EOF
     printf "backend bk_%s\n" "$tag"
     printf "    mode http\n"
     # Волна 4: option forwardfor точечно (forwardfor_backends="bk_a,bk_b").
-    if [[ ",$(cfg_opt forwardfor_backends "")," == *",bk_${tag},"* ]]; then
-      printf "    option forwardfor\n"
-    fi
+    maybe_forwardfor "$tag"
     printf "    server %s 127.0.0.1:%s%s\n" "$tag" "${w_ports[e]}" "$check_sfx"
     printf "\n"
   done
@@ -2949,7 +3082,7 @@ generate_configs() {
     WEB_FRONTENDS=()
     STREAM_BACKENDS=()
     WEB_BACKENDS=()
-    if ! source "$SITES_CONF" 2>/dev/null; then
+    if ! source_sites_file "$SITES_CONF" 2>/dev/null; then
       log_error "  ❌ Ошибка чтения ${SITES_CONF}"
       return 1
     fi
@@ -2960,11 +3093,9 @@ generate_configs() {
     return 1
   fi
 
-  # Волна 1: бэкап текущего состояния до перезаписи
-  backup_now "pre-generate" >/dev/null
-
   # Волна 1: генерация во временные файлы + валидация + атомарное перемещение.
   # Сломанный конфиг никогда не попадает в stream/haproxy.cfg и web/haproxy.cfg.
+  # Бэкап — только после успешной валидации, чтобы неудачи не жрали ротацию.
   local tmp_stream tmp_web
   tmp_stream=$(mktemp)
   tmp_web=$(mktemp)
@@ -2991,6 +3122,9 @@ generate_configs() {
     return 1
   fi
 
+  # Волна 1: бэкап текущего состояния перед перезаписью.
+  backup_now "pre-generate" >/dev/null
+
   mkdir -p "${HAPROXY_DIR}/stream" "${HAPROXY_DIR}/web"
   mv "$tmp_stream" "${HAPROXY_DIR}/stream/haproxy.cfg"
   mv "$tmp_web" "${HAPROXY_DIR}/web/haproxy.cfg"
@@ -3015,7 +3149,7 @@ preview_configs() {
   WEB_FRONTENDS=()
   STREAM_BACKENDS=()
   WEB_BACKENDS=()
-  if ! source "$SITES_CONF" 2>/dev/null; then
+  if ! source_sites_file "$SITES_CONF" 2>/dev/null; then
     log_error "  ❌ Ошибка чтения ${SITES_CONF}"
     return 2
   fi

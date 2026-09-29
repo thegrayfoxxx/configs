@@ -23,7 +23,7 @@ GLOBAL_OPTS=()
 STREAM_ROUTES=()
 WEB_ROUTES=()
 # shellcheck disable=SC1090
-source "$SITES_CONF"
+source_sites_file "$SITES_CONF" || die "❌ Ошибка чтения ${SITES_CONF}"
 
 if [ "${#STREAM_ROUTES[@]}" -gt 0 ] || [ "${#WEB_ROUTES[@]}" -gt 0 ]; then
   log_info "Уже v3 (блоки STREAM_ROUTES/WEB_ROUTES на месте) — мигрировать нечего"
