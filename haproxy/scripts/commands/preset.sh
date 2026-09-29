@@ -48,6 +48,63 @@ declare -A PGIVEN=()  # предзаполненные из --answers
 preset_dir() { printf "%s/%s" "$PRESETS_DIR" "$1"; }
 preset_exists() { [ -f "$(preset_dir "$1")/preset.conf" ] && [ -f "$(preset_dir "$1")/questions" ]; }
 
+# Чистое переименование старых пресетов (без алиасов): подсказка вместо молчаливого 404.
+preset_renamed_hint() {
+  case "$1" in
+    reality-selfsteal) printf "stream-vision (WEB_MODE=sites, SELFSTEAL=no/yes)" ;;
+    xhttp-path-split) printf "stream-vision (WEB_MODE=xhttp-split)" ;;
+    multi-site-l7) printf "web-direct (WEB_MODE=sites)" ;;
+    twin-frontends) printf "удален: второе ухо делается через frontend= вручную + merge (см. README)" ;;
+    xhttp-selfsteal) printf "stream-vision (WEB_MODE=xhttp-split, SELFSTEAL=yes)" ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+preset_require() {
+  local name="$1"
+  if preset_exists "$name"; then return 0; fi
+  local hint
+  if hint=$(preset_renamed_hint "$name"); then
+    die "❌ Пресет '${name}' переименован/удален → используй: ${hint}"
+  fi
+  die "❌ Пресет '${name}' не найден"
+}
+
+# preset_pick — нумерованный выбор пресета из списка (динамика по PRESETS_DIR).
+# Печатает имя в stdout, весь UI — строго в stderr (как ask).
+# Возврат 1 = отмена (пусто/0/EOF). Неверный номер — повтор запроса.
+preset_pick() {
+  local -a names=()
+  local d
+  for d in "$PRESETS_DIR"/*/; do
+    [ -d "$d" ] || continue
+    [ -f "${d}/preset.conf" ] && [ -f "${d}/questions" ] || continue
+    names+=("$(basename "$d")")
+  done
+  if [ "${#names[@]}" -eq 0 ]; then
+    log_error "  ❌ Нет доступных пресетов в ${PRESETS_DIR}"
+    return 1
+  fi
+  local i ans
+  for i in "${!names[@]}"; do
+    printf "  ${GREEN}%d.${NC} %s — %s\n" "$((i + 1))" "${names[$i]}" "$(preset_title "${names[$i]}")" >&2
+  done
+  printf "  ${RED}0.${NC} ⬅️  Назад\n" >&2
+  printf "\n" >&2
+  while true; do
+    printf "${CYAN}👉 Номер пресета:${NC} " >&2
+    pread -r ans || return 1
+    [ -z "$ans" ] && return 1
+    [ "$ans" = "0" ] && return 1
+    if [[ "$ans" =~ ^[0-9]+$ ]] && [ "$ans" -ge 1 ] && [ "$ans" -le "${#names[@]}" ]; then
+      printf "%s" "${names[$((ans - 1))]}"
+      return 0
+    fi
+    log_error "  ❌ Неверный номер (жди 1-${#names[@]} или 0)"
+  done
+}
+
 preset_title() {
   local r
   r=$(grep -m1 '^# ' "$(preset_dir "$1")/README.md" 2>/dev/null | sed 's/^# //')
@@ -145,13 +202,76 @@ ask() { # ask VAR "промпт" "дефолт" валидатор -> печат
   done
 }
 
+# cond_satisfied <условие> — проверка #if/when через PVALS (+PGIVEN как fallback).
+# Формат: ATOM[&&ATOM...], ATOM: VAR==val[,val2] | VAR!=val[,val2].
+# Возврат 0 = выполнено (и пустое условие), 1 = не выполнено, 2 = битый синтаксис.
+cond_satisfied() {
+  local cond="$1"
+  [ -z "$cond" ] && return 0
+  local atom rest="$cond"
+  # Разбиваем по && вручную (значения с & не встречаются).
+  while [ -n "$rest" ]; do
+    if [[ "$rest" == *"&&"* ]]; then
+      atom="${rest%%&&*}"
+      rest="${rest#*&&}"
+    else
+      atom="$rest"
+      rest=""
+    fi
+    # trim пробелов
+    atom="$(printf "%s" "$atom" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -z "$atom" ] && continue
+    local op var want cur
+    if [[ "$atom" == *"!="* ]]; then
+      op="!="
+      var="${atom%%!=*}"
+      want="${atom#*!=}"
+    elif [[ "$atom" == *"=="* ]]; then
+      op="=="
+      var="${atom%%==*}"
+      want="${atom#*==}"
+    elif [[ "$atom" == *"="* ]]; then
+      op="=="
+      var="${atom%%=*}"
+      want="${atom#*=}"
+    else
+      log_error "  ❌ Битое условие '${atom}' (жди VAR==val / VAR!=val, && — И)" >&2
+      return 2
+    fi
+    var="$(printf "%s" "$var" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    want="$(printf "%s" "$want" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    if [[ -v PVALS["$var"] ]]; then
+      cur="${PVALS[$var]}"
+    elif [[ -v PGIVEN["$var"] ]]; then
+      cur="${PGIVEN[$var]}"
+    else
+      cur=""
+    fi
+    local hit=false o _ifs="$IFS"
+    IFS=','
+    # shellcheck disable=SC2086
+    for o in $want; do
+      o="$(printf "%s" "$o" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      [ "$cur" = "$o" ] && hit=true
+    done
+    IFS="$_ifs"
+    if [ "$op" = "==" ] && [ "$hit" != true ]; then
+      return 1
+    fi
+    if [ "$op" = "!=" ] && [ "$hit" = true ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 # collect <preset> <mode:ask|defaults> — заполняет PVALS (вопросы + derive).
 collect() {
   local name="$1" mode="$2"
   local qfile
   qfile="$(preset_dir "$name")/questions"
   PVALS=()
-  local line var prompt def validator
+  local line var prompt def validator when_field extra
   while IFS= read -r line || [ -n "$line" ]; do
   line="${line%$'\r'}" # терпим CRLF (редактирование под Windows)
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -159,10 +279,36 @@ collect() {
     if [[ "$line" == derive:* ]]; then
       continue # derive — вторым проходом
     fi
-    IFS='|' read -r var prompt def validator <<< "$line"
+    IFS='|' read -r var prompt def validator when_field extra <<< "$line"
+    if [ -n "${extra:-}" ]; then
+      log_error "  ❌ Битая строка questions (лишний '|'): '${line}'"
+      return 1
+    fi
+    local when_cond=""
+    if [ -n "${when_field:-}" ]; then
+      if [[ "$when_field" != when:* ]]; then
+        log_error "  ❌ Битое 5-е поле (жди when:COND): '${line}'"
+        return 1
+      fi
+      when_cond="${when_field#when:}"
+    fi
     if [ "$mode" = "defaults" ]; then
       PVALS["$var"]="$def"
       continue
+    fi
+    # when: условие не выполнено — вопрос пропускаем (ответы из --answers игнорируем с варнингом).
+    if [ -n "$when_cond" ]; then
+      cond_satisfied "$when_cond"
+      local _wcrc=$?
+      if [ "$_wcrc" -eq 2 ]; then
+        return 1
+      fi
+      if [ "$_wcrc" -ne 0 ]; then
+        if [[ -v PGIVEN["$var"] ]]; then
+          log_warn "  ⚠  ${var} в answers проигнорирован (не подходит под ${when_cond})"
+        fi
+        continue
+      fi
     fi
     if [[ -v PGIVEN["$var"] ]]; then
       # Значение из --answers: скаляры подхватит render через PVALS ниже,
@@ -273,18 +419,89 @@ collect_list() {
 }
 
 render_preset() { # render <preset> -> stdout готовый sites.conf
+  # Поддерживает условные блоки в preset.conf:
+  #   #if VAR==val[&&VAR2!=val2] ... #else ... #endif (вложенность разрешена).
+  # Строки директив в вывод не попадают. {{VAR}} подставляется только
+  # в активных ветках, поэтому плейсхолдеры из выключенных веток не требуют ответов.
   local name="$1"
-  local content key leftovers
-  content=$(cat "$(preset_dir "$name")/preset.conf")
-  for key in "${!PVALS[@]}"; do
-    content="${content//\{\{$key\}\}/"${PVALS[$key]}"}"
-  done
-  leftovers=$(printf "%s" "$content" | grep -o '{{[A-Za-z_][A-Za-z0-9_]*}}' | sort -u || true)
+  local key leftovers out=""
+  local -a st_cond=() st_else=()
+  local line cond active top_cond in_else eff
+  local i
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    # Директива #if (допустим ведущий пробел).
+    if [[ "$line" =~ ^[[:space:]]*#if[[:space:]]+(.+)$ ]]; then
+      cond="${BASH_REMATCH[1]}"
+      cond="$(printf "%s" "$cond" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      cond_satisfied "$cond"
+      local _crc=$?
+      if [ "$_crc" -eq 2 ]; then
+        return 1
+      elif [ "$_crc" -eq 0 ]; then
+        st_cond+=(true)
+      else
+        st_cond+=(false)
+      fi
+      st_else+=(false)
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*#else[[:space:]]*$ ]]; then
+      if [ "${#st_cond[@]}" -eq 0 ]; then
+        log_error "  ❌ #else без #if (пресет битый)"
+        return 1
+      fi
+      i=$((${#st_cond[@]} - 1))
+      if [ "${st_else[$i]}" = true ]; then
+        log_error "  ❌ Двойной #else (пресет битый)"
+        return 1
+      fi
+      st_else[$i]=true
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]*#endif[[:space:]]*$ ]]; then
+      if [ "${#st_cond[@]}" -eq 0 ]; then
+        log_error "  ❌ #endif без #if (пресет битый)"
+        return 1
+      fi
+      unset 'st_cond[-1]' 'st_else[-1]'
+      continue
+    fi
+    # Активна ли строка? AND по стеку с учетом #else.
+    active=true
+    for ((i = 0; i < ${#st_cond[@]}; i++)); do
+      top_cond="${st_cond[$i]}"
+      in_else="${st_else[$i]}"
+      if [ "$in_else" = true ]; then
+        eff=true
+        [ "$top_cond" = true ] && eff=false
+      else
+        eff="$top_cond"
+      fi
+      if [ "$eff" != true ]; then
+        active=false
+        break
+      fi
+    done
+    # parent_ok не нужен отдельно: active уже учитывает весь стек.
+    if [ "$active" != true ]; then
+      continue
+    fi
+    for key in "${!PVALS[@]}"; do
+      line="${line//\{\{$key\}\}/"${PVALS[$key]}"}"
+    done
+    out+="${line}"$'\n'
+  done < "$(preset_dir "$name")/preset.conf"
+  if [ "${#st_cond[@]}" -ne 0 ]; then
+    log_error "  ❌ Незакрытый #if (нет #endif, пресет битый)"
+    return 1
+  fi
+  leftovers=$(printf "%s" "$out" | grep -o '{{[A-Za-z_][A-Za-z0-9_]*}}' | sort -u || true)
   if [ -n "$leftovers" ]; then
     log_error "  ❌ Незаполненные плейсхолдеры: ${leftovers}"
     return 1
   fi
-  printf "%s\n" "$content"
+  printf "%s" "$out"
 }
 
 load_answers() { # load_answers <file> — VAR=val построчно (повторы для list: append через \n)
@@ -309,13 +526,13 @@ load_answers() { # load_answers <file> — VAR=val построчно (повт�
 # list-VAR есть готовые строки — превращаем их сразу в готовые строки конфига
 # ('  "d:p"' для domainport, '  "host=d to=127.0.0.1:p"' для hostport).
 apply_answers_lists() {
-  local qfile="$1" var fmt
+  local qfile="$1" var fmt when_field extra
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}" # терпим CRLF
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
     [ -z "${line//[[:space:]]/}" ] && continue
     [[ "$line" == derive:* ]] && continue
-    IFS='|' read -r var _ _ fmt <<< "$line"
+    IFS='|' read -r var _ _ fmt when_field extra <<< "$line"
     if [[ "$fmt" == list:* ]] && [[ -v PGIVEN["$var"] ]]; then
       local listfmt="${fmt#list:}"
       local out=() row d p to
@@ -355,7 +572,7 @@ cmd_list() {
 
 cmd_show() {
   local name="${1:?укажи имя пресета}"
-  preset_exists "$name" || die "❌ Пресет '${name}' не найден"
+  preset_require "$name"
   cat "$(preset_dir "$name")/README.md"
   printf "\n  ${CYAN}Вопросы визарда:${NC}\n"
   grep -v '^[[:space:]]*#' "$(preset_dir "$name")/questions" | grep -v '^[[:space:]]*$' || true
@@ -721,7 +938,7 @@ preset_merge_rendered() {
 cmd_apply() {
   local name="$1"
   shift
-  preset_exists "$name" || die "❌ Пресет '${name}' не найден"
+  preset_require "$name"
   local dry_run=false yes=false merge=false answers=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -854,7 +1071,7 @@ cmd_apply() {
 
 cmd_diff() {
   local name="${1:?укажи имя пресета}"
-  preset_exists "$name" || die "❌ Пресет '${name}' не найден"
+  preset_require "$name"
   collect "$name" defaults
   local rendered
   rendered=$(render_preset "$name") || return 1
@@ -874,6 +1091,7 @@ cmd_new() {
   mkdir -p "$dir/custom"
   cat > "$dir/preset.conf" << 'EOF'
 # preset: NAME (сгенерировано preset.sh new, формат v3)
+# Управляем только HAProxy. Xray/nginx/static — отдельно, тут только стык (порты/домены/path).
 ACME_EMAIL="{{ACME_EMAIL}}"
 # Фронтенды (опционально): пусто = один из bind_*. Пример:
 # STREAM_FRONTENDS=(
@@ -890,6 +1108,7 @@ ACME_EMAIL="{{ACME_EMAIL}}"
 # WEB_BACKENDS=(
 #   "name=app to=127.0.0.1:8080 log=off"
 # )
+# Условия: #if VAR==val[&&VAR2!=val2] ... #else ... #endif (вложенность разрешена).
 STREAM_ROUTES=(
   "sni=default to=127.0.0.1:8443 proxy=off name=web"
 )
@@ -898,8 +1117,14 @@ WEB_ROUTES=(
 )
 GLOBAL_OPTS=(
   "timeout_connect=5s"
+#if TIMEOUT_PROFILE==xhttp-1h
+  "timeout_client=1h"
+  "timeout_server=1h"
+  "timeout_tunnel=1h"
+#else
   "timeout_client=50s"
   "timeout_server=50s"
+#endif
   "bind_stream=*:443"
   "bind_web=*:8443"
   "blackhole=deny"
@@ -907,13 +1132,18 @@ GLOBAL_OPTS=(
 EOF
   sed -i "s/NAME/$name/" "$dir/preset.conf"
   cat > "$dir/questions" << 'EOF'
-# Формат: VAR|промпт|дефолт|валидатор (any|nonempty|domain|port|email, list:domainport|list:hostport)
+# Формат: VAR|промпт|дефолт|валидатор[|when:COND]
+# Валидаторы: any|nonempty|domain|port|email|bind|snis|hostport|path|oneof:a,b|list:domainport|list:hostport
+# COND: VAR==val[&&VAR2!=val2], значения через запятую = ИЛИ. Вопрос задается только если условие выполнено.
 # derive:VAR=tag DOMVAR PORTVAR — вычислить тег бэкенда (site_домен_порт)
 ACME_EMAIL|Email для ACME|mail@example.com|email
+TIMEOUT_PROFILE|Профиль таймаутов (sites-50s — обычные сайты, xhttp-1h — долгие сессии)|sites-50s|oneof:sites-50s,xhttp-1h
 SITES_LINES|Сайты: домен и бэкенд||list:hostport
 EOF
   cat > "$dir/README.md" << EOF
 # $name — описание пресета
+
+> Управляем только HAProxy. Xray/nginx/static — отдельно, тут только стык (порты/домены/path).
 
 Что настраивает, зачем и когда использовать. Допиши руками.
 EOF
@@ -938,25 +1168,19 @@ show_menu() {
     pread -r choice || exit 0
     case "$choice" in
       1)
-        printf "  ${CYAN}👉 Имя пресета:${NC} "
-        pread -r pname || continue
-        [ -z "$pname" ] && continue
+        pname="$(preset_pick)" || continue
         cmd_apply "$pname"
         printf "\n"
         menu_pause
         ;;
       2)
-        printf "  ${CYAN}👉 Имя пресета:${NC} "
-        pread -r pname || continue
-        [ -z "$pname" ] && continue
+        pname="$(preset_pick)" || continue
         cmd_show "$pname"
         printf "\n"
         menu_pause
         ;;
       3)
-        printf "  ${CYAN}👉 Имя пресета:${NC} "
-        pread -r pname || continue
-        [ -z "$pname" ] && continue
+        pname="$(preset_pick)" || continue
         cmd_diff "$pname"
         printf "\n"
         menu_pause
@@ -978,9 +1202,9 @@ show_menu() {
 
 case "${1:-}" in
   list) cmd_list ;;
-  show) cmd_show "${2:?}" ;;
-  apply) cmd_apply "${2:?}" "${@:3}" ;;
-  diff) cmd_diff "${2:?}" ;;
+  show) if [ -n "${2:-}" ]; then cmd_show "$2"; else pname="$(preset_pick)" || exit 0; cmd_show "$pname"; fi ;;
+  apply) if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then cmd_apply "$2" "${@:3}"; else pname="$(preset_pick)" || exit 0; cmd_apply "$pname" "${@:2}"; fi ;;
+  diff) if [ -n "${2:-}" ]; then cmd_diff "$2"; else pname="$(preset_pick)" || exit 0; cmd_diff "$pname"; fi ;;
   new) cmd_new "${2:?}" ;;
   *) show_menu ;;
 esac

@@ -94,6 +94,7 @@ print_configs_menu() {
   printf "  ${GREEN}3.${NC} 🔀 Миграция sites.conf → v3\n"
   printf "  ${GREEN}4.${NC} ⬇️  Обновить скрипты из репозитория\n"
   printf "  ${GREEN}5.${NC} 💾 Бэкапы и откат\n"
+  printf "  ${GREEN}6.${NC} ⚙️  Глобальные опции (таймауты/бинды/PROXY)\n"
   printf "  ${GREEN}?.${NC} ❓ Шпаргалка\n"
   printf "  ${RED}0.${NC} ⬅️  Назад\n"
   printf "\n"
@@ -119,6 +120,7 @@ cmd_configs_menu() {
         menu_pause
         ;;
       5) run_cmd "backups.sh"  || true ;;
+      6) run_cmd "global.sh"  || true ;;
       0) return 0 ;;
       ?) print_cheatsheet || true ;;
       *) menu_invalid ;;
