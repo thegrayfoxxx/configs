@@ -1,10 +1,25 @@
 #!/bin/bash
+# HAProxy Manager — тонкий диспетчер главного меню.
+# Структура: Stream (SNI) + Web (Host) + Сертификаты + Пресеты + Сервисы + Конфиги.
+# Конкретика (xray/reality) живет только в presets/.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/scripts/lib/common.sh"
 
 SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
+COMMANDS_DIR="${SCRIPTS_DIR}/commands"
+
+# shellcheck disable=SC1091
+source "${SCRIPTS_DIR}/ui/menu.sh"
+# shellcheck disable=SC1091
+source "${SCRIPTS_DIR}/ui/status.sh"
+# shellcheck disable=SC1091
+source "${SCRIPTS_DIR}/ui/logs.sh"
+# shellcheck disable=SC1091
+source "${SCRIPTS_DIR}/ui/regen.sh"
+# shellcheck disable=SC1091
+source "${SCRIPTS_DIR}/ui/validate.sh"
 
 # Проверяем sites.conf при запуске
 ensure_sites_conf
@@ -12,197 +27,128 @@ ensure_sites_conf
 # Проверяем конфиги HAProxy
 ensure_configs
 
+print_main_menu() {
+  clear_screen
+  print_header "HAPROXY MANAGER" "🔧"
+  print_status_box
+  printf "  ${GREEN}1.${NC} 🔀 Stream\n"
+  printf "  ${GREEN}2.${NC} 🌐 Web\n"
+  printf "  ${GREEN}3.${NC} 📜 Сертификаты\n"
+  printf "  ${GREEN}4.${NC} 🎛️  Пресеты (готовые сценарии)\n"
+  printf "  ${GREEN}5.${NC} 🧩 Сервисы и логи\n"
+  printf "  ${GREEN}6.${NC} 💾 Конфиги и бэкапы\n"
+  printf "  ${GREEN}?.${NC} ❓ Шпаргалка\n"
+  printf "  ${RED}0.${NC} ❌ Выход\n"
+  printf "\n"
+  printf "${CYAN}👉 Пункт:${NC} "
+}
+
+# run_cmd <имя> — запустить commands/<имя> с TTY-пробросом.
+run_cmd() {
+  local name="$1"
+  local path="${COMMANDS_DIR}/${name}"
+  if [ -f "$path" ]; then
+    bash "$path" < "$TTY_IN"
+  else
+    clear_screen
+    log_error "❌ ${name} не найден"
+    menu_pause
+  fi
+}
+
+print_services_menu() {
+  clear_screen
+  print_header "СЕРВИСЫ И ЛОГИ" "🧩"
+  printf "  ${GREEN}1.${NC} 📊 Статус сервисов\n"
+  printf "  ${GREEN}2.${NC} 🔄 Перезапустить все сервисы\n"
+  printf "  ${GREEN}3.${NC} 📋 Логи\n"
+  printf "  ${GREEN}4.${NC} 🧩 Сервисы (вкл/выкл/рестарт/init)\n"
+  printf "  ${GREEN}?.${NC} ❓ Шпаргалка\n"
+  printf "  ${RED}0.${NC} ⬅️  Назад\n"
+  printf "\n"
+  printf "${CYAN}👉 Пункт:${NC} "
+}
+
+cmd_services_menu() {
+  while true; do
+    print_services_menu
+    local choice
+    read -r choice < "$TTY_IN"
+    case "$choice" in
+      1) cmd_status || true ;;
+      2) cmd_restart_all || true ;;
+      3) cmd_logs || true ;;
+      4) run_cmd "services.sh"  || true ;;
+      0) return 0 ;;
+      ?) print_cheatsheet || true ;;
+      *) menu_invalid ;;
+    esac
+  done
+}
+
+print_configs_menu() {
+  clear_screen
+  print_header "КОНФИГИ И БЭКАПЫ" "💾"
+  printf "  ${GREEN}1.${NC} 📝 Перегенерировать конфиги (с diff)\n"
+  printf "  ${GREEN}2.${NC} ✅ Проверить конфиги (haproxy -c)\n"
+  printf "  ${GREEN}3.${NC} 🔀 Миграция sites.conf → v3\n"
+  printf "  ${GREEN}4.${NC} ⬇️  Обновить скрипты из репозитория\n"
+  printf "  ${GREEN}5.${NC} 💾 Бэкапы и откат\n"
+  printf "  ${GREEN}?.${NC} ❓ Шпаргалка\n"
+  printf "  ${RED}0.${NC} ⬅️  Назад\n"
+  printf "\n"
+  printf "${CYAN}👉 Пункт:${NC} "
+}
+
+cmd_configs_menu() {
+  while true; do
+    print_configs_menu
+    local choice
+    read -r choice < "$TTY_IN"
+    case "$choice" in
+      1) cmd_regen || true ;;
+      2) cmd_validate || true ;;
+      3)
+        run_cmd "migrate.sh"
+        printf "\n"
+        menu_pause
+        ;;
+      4)
+        run_cmd "update.sh"
+        printf "\n"
+        menu_pause
+        ;;
+      5) run_cmd "backups.sh"  || true ;;
+      0) return 0 ;;
+      ?) print_cheatsheet || true ;;
+      *) menu_invalid ;;
+    esac
+  done
+}
+
+# dispatch <choice> — один пункт меню. Вынесено из цикла для тестируемости.
+dispatch() {
+  local choice="$1"
+  case "$choice" in
+    1) run_cmd "stream.sh"  || true ;;
+    2) run_cmd "web.sh"  || true ;;
+    3) run_cmd "cert.sh"  || true ;;
+    4) run_cmd "preset.sh"  || true ;;
+    5) cmd_services_menu || true ;;
+    6) cmd_configs_menu || true ;;
+    0) exit 0 ;;
+    ?) print_cheatsheet || true ;;
+    *) menu_invalid ;;
+  esac
+}
+
 show_menu() {
   trap 'exit 0' INT
   while true; do
-    clear_screen
-    print_header "HAPROXY MANAGER" "🔧"
-    print_status_box
-    printf "  ${GREEN}1.${NC} 🌐 Управление сайтами\n"
-    printf "  ${GREEN}2.${NC} 🔐 Управление Reality\n"
-    printf "  ${GREEN}3.${NC} 📜 Управление сертификатами\n"
-    printf "  ${GREEN}4.${NC} 📊 Статус сервисов\n"
-    printf "  ${GREEN}5.${NC} 🔄 Перезапустить все сервисы\n"
-    printf "  ${GREEN}6.${NC} 📋 Логи\n"
-    printf "  ${GREEN}7.${NC} ⬇️  Обновить конфиги из репозитория\n"
-    printf "  ${GREEN}8.${NC} 📝 Перегенерировать конфиги\n"
-    printf "  ${GREEN}9.${NC} 🧩 Сервисы (вкл/выкл/рестарт/init)\n"
-    printf "  ${GREEN}10.${NC} 💾 Бэкапы и откат\n"
-    printf "  ${GREEN}11.${NC} ✅ Проверить конфиги (haproxy -c)\n"
-    printf "  ${GREEN}12.${NC} 🔀 Миграция sites.conf v1 → v2\n"
-    printf "  ${GREEN}13.${NC} 🎛️  Пресеты (готовые сценарии)\n"
-    printf "  ${RED}0.${NC} ❌ Выход\n"
-    printf "\n"
-    printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
-
-    case "$choice" in
-      1)
-        if [ -f "${SCRIPTS_DIR}/site.sh" ]; then
-          bash "${SCRIPTS_DIR}/site.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ site.sh не найден"
-          read -p "[Enter]..." < /dev/tty
-        fi
-        ;;
-      2)
-        if [ -f "${SCRIPTS_DIR}/reality.sh" ]; then
-          bash "${SCRIPTS_DIR}/reality.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ reality.sh не найден"
-          read -p "[Enter]..." < /dev/tty
-        fi
-        ;;
-      3)
-        if [ -f "${SCRIPTS_DIR}/cert.sh" ]; then
-          bash "${SCRIPTS_DIR}/cert.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ cert.sh не найден"
-          read -p "[Enter]..." < /dev/tty
-        fi
-        ;;
-      4)
-        clear_screen
-        print_header "СТАТУС СЕРВИСОВ" "📊"
-        if ! docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=haproxy" --filter "name=acme" 2>/dev/null; then
-          log_error "❌ Не удалось получить статус. Проверь Docker."
-        fi
-        printf "\n"
-        read -p "[Enter]..." < /dev/tty
-        ;;
-      5)
-        clear_screen
-        print_header "ПЕРЕЗАПУСК СЕРВИСОВ" "🔄"
-        if safe_docker_compose restart; then
-          log_info "✅ Сервисы перезапущены"
-        else
-          log_error "❌ Ошибка перезапуска сервисов"
-        fi
-        printf "\n"
-        read -p "[Enter]..." < /dev/tty
-        ;;
-      6)
-        clear_screen
-        print_header "ЛОГИ" "📋"
-        printf "  ${GREEN}1.${NC} haproxy-stream\n"
-        printf "  ${GREEN}2.${NC} haproxy-web\n"
-        printf "  ${GREEN}3.${NC} acme\n"
-        printf "  ${RED}0.${NC} Назад\n"
-        printf "\n"
-        printf "${CYAN}👉 Пункт:${NC} "
-        read -r log_choice < /dev/tty
-        case "$log_choice" in
-          1)
-            if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-stream'; then
-              log_error "❌ Контейнер haproxy-stream не запущен"
-            else
-              docker logs haproxy-stream --tail 50 -f
-            fi
-            ;;
-          2)
-            if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'haproxy-web'; then
-              log_error "❌ Контейнер haproxy-web не запущен"
-            else
-              docker logs haproxy-web --tail 50 -f
-            fi
-            ;;
-          3)
-            if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'acme'; then
-              log_error "❌ Контейнер acme не запущен"
-            else
-              docker logs acme --tail 50 -f
-            fi
-            ;;
-          0) continue ;;
-        esac
-        ;;
-      7)
-        if [ -f "${SCRIPTS_DIR}/update.sh" ]; then
-          bash "${SCRIPTS_DIR}/update.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ update.sh не найден"
-        fi
-        printf "\n"
-        read -p "[Enter]..." < /dev/tty
-        ;;
-      8)
-        if [ -f "$SITES_CONF" ]; then
-          load_sites
-          printf "\n"
-          if preview_configs; then
-            log_info "✅ Перегенерировать нечего — живые конфиги совпадают"
-          else
-            printf "\n"
-            printf "  ${CYAN}👉 Применить показанный diff? [y/N]:${NC} "
-            read -r ans < /dev/tty
-            if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
-              generate_configs
-            else
-              log_info "Отмена (живые файлы не тронуты)"
-            fi
-          fi
-        else
-          log_error "❌ sites.conf не найден"
-        fi
-        read -p "[Enter]..." < /dev/tty
-        ;;
-      9)
-        if [ -f "${SCRIPTS_DIR}/services.sh" ]; then
-          bash "${SCRIPTS_DIR}/services.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ services.sh не найден"
-          read -p "[Enter]..." < /dev/tty
-        fi
-        ;;
-      10)
-        if [ -f "${SCRIPTS_DIR}/backups.sh" ]; then
-          bash "${SCRIPTS_DIR}/backups.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ backups.sh не найден"
-          read -p "[Enter]..." < /dev/tty
-        fi
-        ;;
-      11)
-        clear_screen
-        print_header "ПРОВЕРКА КОНФИГОВ" "✅"
-        load_sites 2>/dev/null || true
-        rc=0
-        validate_cfg "${SCRIPT_DIR}/stream/haproxy.cfg" || rc=1
-        validate_cfg "${SCRIPT_DIR}/web/haproxy.cfg" || rc=1
-        if [ "$rc" -eq 0 ]; then
-          log_info "✅ Оба конфига в порядке (или haproxy нет для проверки)"
-        fi
-        read -p "[Enter]..." < /dev/tty
-        ;;
-      12)
-        if [ -f "${SCRIPTS_DIR}/migrate.sh" ]; then
-          bash "${SCRIPTS_DIR}/migrate.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ migrate.sh не найден"
-          read -p "[Enter]..." < /dev/tty
-        fi
-        printf "\n"
-        read -p "[Enter]..." < /dev/tty
-        ;;
-      13)
-        if [ -f "${SCRIPTS_DIR}/preset.sh" ]; then
-          bash "${SCRIPTS_DIR}/preset.sh" < /dev/tty
-        else
-          clear_screen
-          log_error "❌ preset.sh не найден"
-          read -p "[Enter]..." < /dev/tty
-        fi
-        ;;
-      0) exit 0 ;;
-      *) log_error "❌ Неверный пункт"; sleep 1; continue ;;
-    esac
+    print_main_menu
+    local choice
+    read -r choice < "$TTY_IN"
+    dispatch "$choice"
   done
 }
 

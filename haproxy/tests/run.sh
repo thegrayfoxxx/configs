@@ -18,14 +18,20 @@ done < <(find "$PROJ" -name '*.sh' -not -path '*/.git/*' | sort)
 
 if command -v shellcheck >/dev/null 2>&1; then
   printf "== shellcheck ==\n"
+  sc_count=0
   while IFS= read -r f; do
+    sc_count=$((sc_count + 1))
     if shellcheck -S warning "$f"; then
       printf "  ok: %s\n" "${f#$PROJ/}"
     else
       printf "  FAIL: %s\n" "${f#$PROJ/}"
       fail=1
     fi
-  done < <(find "$PROJ/haproxy" -name '*.sh' -not -path '*/.git/*' | sort)
+  done < <(find "$PROJ" -name '*.sh' -not -path '*/.git/*' | sort)
+  if [ "$sc_count" -eq 0 ]; then
+    printf "  FAIL: shellcheck не нашёл ни одного файла (сломан путь поиска)\n"
+    fail=1
+  fi
 else
   printf "== shellcheck пропущен (нет бинарника) ==\n"
 fi

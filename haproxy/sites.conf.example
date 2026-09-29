@@ -1,16 +1,77 @@
-# HAProxy конфигурация
-# Скопируй как sites.conf и отредактируй
+# HAProxy конфигурация (v3) — пример
+# Скопируй как sites.conf и отредактируй. Миграция с v1/v2: migrate.sh.
+#
+# Правила формата:
+#   STREAM_ROUTES: "sni=<домены через пробел|default> to=<host:порт>|use=<ящик>[ proxy=off|v1|v2][ name=<метка>][ log=on|off][ frontend=<имя>]"
+#     - одна запись sni=default обязательна (явный дефолт в web-терминацию)
+#     - to= : адрес прямо в маршруте (анонимный ящик); use= : ссылка на ящик из STREAM_BACKENDS
+#     - proxy/name/log при use= запрещены (живут на ящике)
+#     - log=off: не писать логи этого бэкенда (no log) — для шумных маршрутов
+#     - frontend=<имя>: виден только в этом фронтенде; без ключа — везде
+#   WEB_ROUTES:    "host=<домен> to=<host:порт>|use=<ящик>[ path=/prefix][ name=<метка>][ log=on|off][ frontend=<имя>]"
+#     - path-правила одного домена ставятся ВЫШЕ общего host-правила
+#     - backend глушится (no log), только если ВСЕ его инлайн-записи с log=off
+#   STREAM_BACKENDS: "name=<метка> to=<host:порт>[ proxy=off|v1|v2][ log=on|off]"
+#   WEB_BACKENDS:    "name=<метка> to=<host:порт>[ log=on|off]"
+#     - именованные ящики; маршруты ссылаются через use= (можно несколько маршрутов в один)
+#     - удаление занятого ящика запрещено; висячий ящик — варнинг
+#   STREAM_FRONTENDS / WEB_FRONTENDS: "name=<метка> bind=<host:порт>[ log=on|off]"
+#     - пусто = один фронтенд из bind_stream/bind_web (как раньше)
+#     - первый созданный фронтенд тянет авто-импорт текущего bind_* как name=main
+#   GLOBAL_OPTS:   "ключ=значение" (все ключи ниже с комментариями)
+# Конкретика (xray/reality) — только в presets/, ядро нейтрально.
 
 ACME_EMAIL="mailname@example.com"
 
-# Сайты (L7, SSL termination через haproxy-web)
-# формат: "домен:порт_бэкенда"
-WEB_SITES=(
-  "site1.com:11443"
+# Фронтенды (опционально; закомментировано = одиночный режим)
+# STREAM_FRONTENDS=(
+#   "name=public bind=*:443"
+#   "name=internal bind=127.0.0.1:4443 log=off"
+# )
+# WEB_FRONTENDS=(
+#   "name=main bind=127.0.0.1:8443"
+# )
+
+# Бэкенды (опционально; без них маршруты несут адреса инлайн через to=)
+# STREAM_BACKENDS=(
+#   "name=vpn to=127.0.0.1:10443"
+# )
+# WEB_BACKENDS=(
+#   "name=app to=127.0.0.1:8080 log=off"
+# )
+
+# Stream-маршруты (L4, SNI -> backend)
+STREAM_ROUTES=(
+  # SNI-маршрут на внутренний сервис:
+  "sni=vpn.example.com to=127.0.0.1:10443 proxy=off name=sni-1"
+  # Явный дефолт — остальной HTTPS в web-терминацию:
+  "sni=default to=127.0.0.1:8443 proxy=off name=web"
 )
 
-# Reality (L4, напрямую на xray)
-# формат: "домены:порт_xray"
-REALITY_SITES=(
-  "google.com www.google.com:10443"
+# Web-маршруты (L7, Host -> backend за терминацией)
+WEB_ROUTES=(
+  # Простой сайт:
+  "host=site1.com to=127.0.0.1:8080"
+  # Один домен, два бэкенда: API-путь в один backend, остальное в другой:
+  # "host=x.cdn.example.com to=127.0.0.1:11443 path=/data/"
+  # "host=x.cdn.example.com to=127.0.0.1:8080"
+)
+
+# Глобальные опции (значения ниже = поведение по умолчанию)
+GLOBAL_OPTS=(
+  "timeout_connect=5s"
+  "timeout_client=50s"    # подними (1h) для долгих proxy-сессий
+  "timeout_server=50s"    # подними (1h) для долгих proxy-сессий
+  # "timeout_tunnel=1h"   # раскомментировать для стримов/XHTTP-даунлинков
+  "bind_stream=*:443"
+  "bind_web=*:8443"       # для loopback-only: 127.0.0.1:8443
+  "blackhole=deny"        # deny|tarpit
+  # "blackhole_deny_status=404"  # код для deny (100-599), дефолт 403
+  # PROXY-пара stream->web (дефолт-запись выше должна слать/читать парно):
+  # "stream_web_proxy=off"  # off|v1|v2 — слать PROXY в web-бэкенд
+  # "web_accept_proxy=off"  # off|on — читать PROXY на bind web
+  # "backend_check=off"     # off|tcp — healthcheck-и бэкендов (шумят в логах!)
+  # "forwardfor_backends="  # теги бэкендов через запятую для option forwardfor
+  # "stream_log_sni=off"    # off|on — SNI в stream-лог
+  # "web_capture_headers=off"  # off|on — capture Host и X-Forwarded-For в web-лог
 )

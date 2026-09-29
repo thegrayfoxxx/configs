@@ -31,8 +31,8 @@ grep -q 'bk_xray_2' "$TMP/stream/haproxy.cfg" \
   || { printf "  FAIL: per-entry backend/PROXY\n"; fail=1; }
 
 # path-правило выше общего host-правила того же домена
-path_line=$(grep -n 'path_beg /data/' "$TMP/web/haproxy.cfg" | head -1 | cut -d: -f1)
-gen_line=$(grep -n 'use_backend bk_site_x_example_com_8080' "$TMP/web/haproxy.cfg" | head -1 | cut -d: -f1)
+path_line=$(grep -n 'path_beg /data/' "$TMP/web/haproxy.cfg" 2>/dev/null | head -1 | cut -d: -f1 || true)
+gen_line=$(grep -n 'use_backend bk_site_x_example_com_8080' "$TMP/web/haproxy.cfg" 2>/dev/null | head -1 | cut -d: -f1 || true)
 [ -n "$path_line" ] && [ -n "$gen_line" ] && [ "$path_line" -lt "$gen_line" ] \
   && printf "  ok: path-правило выше общего\n" \
   || { printf "  FAIL: порядок path-правил\n"; fail=1; }
