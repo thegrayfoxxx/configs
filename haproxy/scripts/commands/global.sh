@@ -35,13 +35,26 @@ g_del() {
 }
 
 g_save() {
+  # g_save [--no-validate] — в интерактиве (без флага) спрашивает про проверку.
+  local _flag="${1:-}"
+  if [ -z "$_flag" ]; then
+    _flag=$(ask_validate)
+  elif [ "$_flag" != "--no-validate" ]; then
+    die "❌ g_save: жди --no-validate"
+  fi
   if ! validate_all; then
     log_error "❌ Проверка не пройдена — файл не тронут"
     return 1
   fi
   save_sites
   log_info "✅ GLOBAL_OPTS записаны"
-  if ! generate_configs; then
+  if [ -z "$_flag" ]; then
+    if ! generate_configs; then
+      log_error "❌ Ошибка генерации конфигов"
+      return 1
+    fi
+  # shellcheck disable=SC2086
+  elif ! generate_configs $_flag; then
     log_error "❌ Ошибка генерации конфигов"
     return 1
   fi
@@ -204,24 +217,27 @@ show_menu() {
   done
 }
 
-# Неинтерактивно: --show | --set K=V [--set ...] (для скриптов/тестов).
+# Неинтерактивно: --show | --set K=V [--set ...] [--no-validate] (для скриптов/тестов).
 if [ "${1:-}" = "--show" ]; then
   show_opts
   exit 0
 elif [ "${1:-}" = "--set" ]; then
   shift
   load_sites
+  g_novalidate=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --set) shift; continue ;;
+      --no-validate) g_novalidate="--no-validate"; shift; continue ;;
       *=*) g_set "${1%%=*}" "${1#*=}"; shift ;;
-      *) die "❌ Жди --set K=V" ;;
+      *) die "❌ Жди --set K=V [--no-validate]" ;;
     esac
   done
-  g_save
+  # shellcheck disable=SC2086
+  g_save $g_novalidate
   exit 0
 elif [ $# -eq 0 ]; then
   show_menu
 else
-  die "❌ Неизвестные флаги (жди без флагов / --show / --set K=V...)"
+  die "❌ Неизвестные флаги (жди без флагов / --show / --set K=V [--no-validate])"
 fi

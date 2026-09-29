@@ -65,6 +65,31 @@ confirm_restart() {
   fi
 }
 
+# ask_validate — вопрос «Проверять конфиг haproxy -c перед записью? [Y/n]».
+# Печатает в stdout флаг для generate_configs: "" (проверять, дефолт/пусто/y)
+# или "--no-validate" (n — риск на операторе). Всегда возврат 0.
+ask_validate() {
+  local ans flag=""
+  printf "  ${CYAN}👉 Проверить конфиг haproxy -c перед записью? [Y/n]:${NC} " >&2
+  tread -r ans || ans=""
+  if [ "$ans" = "n" ] || [ "$ans" = "N" ]; then
+    log_warn "  ⚠  Без проверки: битый конфиг ляжет только на рестарте (crash-loop :443)" >&2
+    flag="--no-validate"
+  fi
+  printf "%s" "$flag"
+}
+
+# generate_configs_ask — спросить про валидацию и сгенерировать.
+# Возврат как у generate_configs. В неинтерактиве (EOF) — строго, как без флага.
+generate_configs_ask() {
+  local vflag
+  vflag=$(ask_validate)
+  if [ -z "$vflag" ]; then
+    generate_configs
+  else
+    generate_configs "$vflag"
+  fi
+}
 # ask_default <промпт> <текущее> — ввод с дефолтом (пусто = оставить как было).
 # Промпт строго в stderr: значение печатается в stdout для $(...)-захвата.
 ask_default() {

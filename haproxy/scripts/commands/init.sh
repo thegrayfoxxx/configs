@@ -43,10 +43,13 @@ if [ -f "${SCRIPT_DIR}/preset.sh" ]; then
 fi
 ensure_sites_conf
 
-# Шаг 3: генерация + валидация
+# Шаг 3: генерация + валидация (вопрос как везде при генерации).
 load_sites
-if ! generate_configs; then
-  die "❌ Генерация не удалась — чиним sites.conf и повторяем"
+genflag=$(ask_validate)
+if [ -z "$genflag" ]; then
+  generate_configs || die "❌ Генерация не удалась — чиним sites.conf и повторяем"
+else
+  generate_configs "$genflag" || die "❌ Генерация не удалась — чиним sites.conf и повторяем"
 fi
 
 # Шаг 4: up

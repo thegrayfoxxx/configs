@@ -3304,6 +3304,17 @@ check_proxy_parity() {
 }
 
 generate_configs() {
+  # generate_configs [--no-validate] — собрать stream/web из sites.conf.
+  # Дефолт: строго валидировать (fail-closed). --no-validate: писать без проверки,
+  # с громким варнингом (явный выбор оператора, для скриптов есть еще
+  # HAPROXY_NO_VALIDATE=1). Бэкап pre-generate — в обоих путях.
+  local _skip_validate=false
+  if [ "${1:-}" = "--no-validate" ]; then
+    _skip_validate=true
+  elif [ -n "${1:-}" ]; then
+    log_error "  ❌ generate_configs: неизвестный флаг '$1' (жди --no-validate)"
+    return 1
+  fi
   printf "  ${CYAN}📝 Генерирую конфиги...${NC}\n"
 
   # Загружаем данные из sites.conf
@@ -3329,8 +3340,9 @@ generate_configs() {
   fi
 
   # Волна 1: генерация во временные файлы + валидация + атомарное перемещение.
-  # Сломанный конфиг никогда не попадает в stream/haproxy.cfg и web/haproxy.cfg.
-  # Бэкап — только после успешной валидации, чтобы неудачи не жрали ротацию.
+  # Сломанный конфиг никогда не попадает в stream/haproxy.cfg и web/haproxy.cfg
+  # (кроме явного --no-validate — тогда риск на операторе).
+  # Бэкап — только после успешной генерации/валидации, чтобы неудачи не жрали ротацию.
   local tmp_stream tmp_web
   tmp_stream=$(mktemp)
   tmp_web=$(mktemp)
@@ -3347,14 +3359,18 @@ generate_configs() {
     return 1
   fi
 
-  if ! validate_cfg "$tmp_stream" "haproxy-stream"; then
-    log_error "  ❌ stream-конфиг не прошёл валидацию (старый файл не тронут)"
-    return 1
-  fi
+  if [ "$_skip_validate" = true ]; then
+    log_warn "  ⚠  Пропускаю проверку haproxy -c (явный --no-validate) — риск на операторе: рестарт с битым cfg = crash-loop :443"
+  else
+    if ! validate_cfg "$tmp_stream" "haproxy-stream"; then
+      log_error "  ❌ stream-конфиг не прошёл валидацию (старый файл не тронут)"
+      return 1
+    fi
 
-  if ! validate_cfg "$tmp_web" "haproxy-web"; then
-    log_error "  ❌ web-конфиг не прошёл валидацию (старый файл не тронут)"
-    return 1
+    if ! validate_cfg "$tmp_web" "haproxy-web"; then
+      log_error "  ❌ web-конфиг не прошёл валидацию (старый файл не тронут)"
+      return 1
+    fi
   fi
 
   # Волна 1: бэкап текущего состояния перед перезаписью.

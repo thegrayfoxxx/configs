@@ -186,7 +186,7 @@ add_route() {
   save_sites
   log_info "✅ Web-маршрут '${host}${path}' добавлен в sites.conf"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -413,7 +413,7 @@ edit_route() {
   save_sites
   log_info "✅ Web-маршрут '${host}${path}' обновлён"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -475,7 +475,7 @@ remove_route() {
   save_sites
   log_info "✅ Web-маршрут '${old_host}${old_path}' удалён из sites.conf"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -586,7 +586,7 @@ fe_add() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -700,7 +700,7 @@ fe_edit() {
   save_sites
   log_info "✅ Web-фронтенд '${fe_name}' обновлён"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -739,7 +739,7 @@ fe_remove() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -814,7 +814,7 @@ be_add() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -923,7 +923,7 @@ be_edit() {
   save_sites
   log_info "✅ Web-ящик '${be_name}' обновлён"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -962,7 +962,7 @@ be_remove() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi

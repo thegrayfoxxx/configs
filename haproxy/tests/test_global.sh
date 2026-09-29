@@ -34,7 +34,7 @@ GLOBAL_OPTS=(
   "blackhole=deny"
 )
 EOF
-  printf '1\n2\nn\n\n0\n' > "$TMP/tty-in"
+  printf '1\n2\ny\nn\n\n0\n' > "$TMP/tty-in"
   timeout 25 bash -c 'MENU_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" bash "$2/scripts/commands/global.sh" > "$1/session.log" 2>&1' _ "$TMP" "$PROJ" \
     || { printf "  FAIL: global интерактив завис/упал\n"; fail=1; }
   grep -q '"timeout_client=1h"' "$TMP/sites.conf" \

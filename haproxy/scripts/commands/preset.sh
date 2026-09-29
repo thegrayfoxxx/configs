@@ -1064,14 +1064,15 @@ cmd_apply() {
   local name="$1"
   shift
   preset_require "$name"
-  local dry_run=false yes=false merge=false answers=""
+  local dry_run=false yes=false merge=false answers="" novalidate=false
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry-run) dry_run=true ;;
       --yes) yes=true ;;
       --merge) merge=true ;;
+      --no-validate) novalidate=true ;;
       --answers) answers="${2:?}"; shift ;;
-      *) die "❌ Неизвестный флаг: $1 (жди --dry-run/--yes/--merge/--answers файл)" ;;
+      *) die "❌ Неизвестный флаг: $1 (жди --dry-run/--yes/--merge/--no-validate/--answers файл)" ;;
     esac
     shift
   done
@@ -1190,7 +1191,22 @@ cmd_apply() {
     shopt -u nullglob
   fi
   log_info "  ✅ sites.conf записан (бэкап: ${bd})"
-  if ! generate_configs; then
+  # Вопрос валидации — через pread (единый PRESET_FD): ask_validate из menu.sh
+  # сидит на другом FD и при файловом вводе читал бы сначала.
+  local genflag=""
+  if [ "$novalidate" = true ]; then
+    genflag="--no-validate"
+  elif [ "$yes" != true ]; then
+    printf "  ${CYAN}👉 Проверить конфиг haproxy -c перед записью? [Y/n]:${NC} "
+    local vans
+    pread -r vans || vans=""
+    if [ "$vans" = "n" ] || [ "$vans" = "N" ]; then
+      log_warn "  ⚠  Без проверки: битый конфиг ляжет только на рестарте (crash-loop :443)"
+      genflag="--no-validate"
+    fi
+  fi
+  # shellcheck disable=SC2086
+  if ! generate_configs $genflag; then
     log_error "  ❌ Генерация не удалась — sites.conf новый, конфиги старые (откат: раздел 6 → бэкапы → ${bd##*/})"
     return 1
   fi

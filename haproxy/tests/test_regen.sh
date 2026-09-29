@@ -94,7 +94,7 @@ EOF
     && grep -q 'is_s_1' "$TMP/stream/haproxy.cfg" \
     && printf "  ok: снос без ДА отклонен, живые целы\n" \
     || { printf "  FAIL: снос без ДА\n"; fail=1; }
-  printf 'ДА\ny\n\n' > "$TMP/tty-yes"
+  printf 'ДА\ny\ny\n\n' > "$TMP/tty-yes"
   export MENU_TTY="$TMP/tty-yes"
   # shellcheck disable=SC1091
   source "$PROJ/scripts/ui/menu.sh" # переоткрыть FD на новый файл

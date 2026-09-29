@@ -40,8 +40,14 @@ cmd_regen() {
       fi
     fi
     printf "\n"
+    local vflag
+    vflag=$(ask_validate)
     if menu_confirm "Применить показанный diff? [y/N]:"; then
-      generate_configs
+      if [ -z "$vflag" ]; then
+        generate_configs
+      else
+        generate_configs "$vflag"
+      fi
     else
       log_info "Отмена (живые файлы не тронуты)"
     fi

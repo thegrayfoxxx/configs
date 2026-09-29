@@ -208,7 +208,7 @@ add_route() {
   save_sites
   log_info "✅ Stream-маршрут '${sni}' добавлен в sites.conf"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -464,7 +464,7 @@ edit_route() {
   save_sites
   log_info "✅ Stream-маршрут '${sni}' обновлён"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -541,7 +541,7 @@ remove_route() {
   save_sites
   log_info "✅ Stream-маршрут '${old_sni}' удалён из sites.conf"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -649,7 +649,7 @@ fe_add() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов (фронтенд записан, проверь default-маршруты)"
     return
   fi
@@ -763,7 +763,7 @@ fe_edit() {
   save_sites
   log_info "✅ Stream-фронтенд '${fe_name}' обновлён"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -802,7 +802,7 @@ fe_remove() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -880,7 +880,7 @@ be_add() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -995,7 +995,7 @@ be_edit() {
   save_sites
   log_info "✅ Stream-ящик '${be_name}' обновлён"
 
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi
@@ -1034,7 +1034,7 @@ be_remove() {
     return
   fi
   save_sites
-  if ! generate_configs; then
+  if ! generate_configs_ask; then
     log_error "❌ Ошибка генерации конфигов"
     return
   fi

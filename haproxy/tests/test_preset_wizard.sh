@@ -119,7 +119,7 @@ cp "$PROJ/tests/fixtures/sites6-stream-selfsteal.conf" "$WP/sites.conf"
 cp "$PROJ/tests/fixtures/expected6-stream-selfsteal-stream.cfg" "$WP/stream/haproxy.cfg"
 cp "$PROJ/tests/fixtures/expected6-stream-selfsteal-web.cfg" "$WP/web/haproxy.cfg"
 # Ответы xray-direct (дефолты), затем: 1 (затереть), ДА (снос), y (применить), n (без up).
-printf '%s\n' 't@e.com' 'drop.example.com' '8080' 'deny' 'off' 'off' 'sites-50s' 'off' 'off' '1' 'ДА' 'y' 'n' > "$WP/tty-in"
+printf '%s\n' 't@e.com' 'drop.example.com' '8080' 'deny' 'off' 'off' 'sites-50s' 'off' 'off' '1' 'ДА' 'y' 'y' 'n' > "$WP/tty-in"
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply xray-direct > "$1/session.log" 2>&1' _ "$WP" "$PROJ" \
   || { printf "  FAIL: apply со сносом упал/вис\n"; fail=1; }
 grep -q 'ВНИМАНИЕ' "$WP/session.log" \
