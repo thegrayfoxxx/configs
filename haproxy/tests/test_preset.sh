@@ -132,6 +132,7 @@ ACME_EMAIL=t@e.com
 STUB_DOMAIN=drop.example.com
 STUB_PORT=8080
 BLACKHOLE=deny
+WEB_ACCEPT_PROXY=off
 TIMEOUT_PROFILE=sites-50s
 BACKEND_CHECK=off
 LOGS_CAPTURE=off
@@ -142,6 +143,29 @@ EOF
     && ! echo "$out" | grep -q 'proxy' \
     && printf "  ok: xray-direct рендерит таргет без PROXY\n" \
     || { printf "  FAIL: xray-direct\n%s\n" "$out"; fail=1; }
+  # xver-кейс: WEB_ACCEPT_PROXY=on дает accept-proxy на бинде
+  cat > "$TMP/answers-proxy" << 'EOF'
+ACME_EMAIL=t@e.com
+STUB_DOMAIN=drop.example.com
+STUB_PORT=8080
+BLACKHOLE=deny
+WEB_ACCEPT_PROXY=on
+TIMEOUT_PROFILE=sites-50s
+BACKEND_CHECK=off
+LOGS_CAPTURE=off
+EOF
+  out=$(HAPROXY_DIR_OVERRIDE="$PROJ" bash "$PROJ/scripts/preset.sh" apply xray-direct --dry-run --answers "$TMP/answers-proxy" 2>/dev/null)
+  echo "$out" | grep -q '"web_accept_proxy=on"' \
+    || { printf "  FAIL: xray-direct xver\n%s\n" "$out"; fail=1; }
+  printf "%s\n" "$out" > "$TMP/sites.conf"
+  export HAPROXY_DIR_OVERRIDE="$TMP"
+  # shellcheck disable=SC1091
+  source "$PROJ/scripts/lib/common.sh"
+  generate_configs > /tmp/preset-xray-log.txt 2>&1 || { printf "  FAIL: generate после xray-direct\n"; cat /tmp/preset-xray-log.txt; fail=1; }
+  grep -q 'bind 127.0.0.1:8443 ssl.*accept-proxy' "$TMP/web/haproxy.cfg" \
+    && printf "  ok: xray-direct xver дает accept-proxy на бинде\n" \
+    || { printf "  FAIL: e2e xray-direct accept-proxy\n"; fail=1; }
+  unset HAPROXY_DIR_OVERRIDE
   trap - EXIT
   rm -rf "$TMP"
 }

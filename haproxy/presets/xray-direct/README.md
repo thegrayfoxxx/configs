@@ -21,14 +21,18 @@ flowchart LR
 
 - `WEB_ROUTES`: одна запись `host=STUB_DOMAIN → stub`.
 - `GLOBAL_OPTS`: `bind_web=127.0.0.1:8443` (только loopback — наружу его не видно),
-  таймауты по профилю, без PROXY-пары (Xray-fallback PROXY не шлет, `xver:0`).
+  таймауты по профилю, `web_accept_proxy` по вопросу (см. ниже).
 
 ## Требования со стороны Xray (важно!)
 
 1. Inbound: `bind *:443`, `serverNames=[STUB_DOMAIN]`, `target=127.0.0.1:8443`
    (raw TCP fallback, SNI сохраняется — web отдаст правильный серт).
-2. Если включишь в Xray `xver` (PROXY в таргет) — включи и тут `web_accept_proxy=on`
-   руками (пресет его не ставит). Оба флага сразу, иначе рассинхрон.
+2. PROXY на ноге fallback: визард спрашивает `WEB_ACCEPT_PROXY`.
+   Правило: значение = `xver` в `realitySettings` твоего инбаунда —
+   `xver: 2` → отвечай `on`, нет `xver` (0) → `off`.
+   > ❌ Рассинхрон (Xray шлет `xver`, а web без `accept-proxy` — или наоборот)
+   > роняет весь fallback: браузеры без ключа перестанут открываться.
+   > В логах web при этом флуд `not a PROXY header`.
 3. LE-сертификат для `STUB_DOMAIN` выпускается как обычно через `:80`
    (`:443` занят Xray — выпуску не мешает, нужен только `:80`).
 4. Заглушка за web — обычный nginx/static на `127.0.0.1:STUB_PORT`.
