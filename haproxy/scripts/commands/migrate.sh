@@ -78,7 +78,7 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 printf "  Мигрировать %s в v3? [y/N]: " "$SITES_CONF"
-read -r ans < /dev/tty
+tread -r ans
 if [ "$ans" != "y" ] && [ "$ans" != "Y" ]; then
   log_info "Отмена"
   exit 0

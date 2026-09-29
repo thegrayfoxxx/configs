@@ -299,6 +299,8 @@ docker restart haproxy-web
 | `4` | Пресеты (готовые сценарии: list/show/apply/diff/new) |
 | `5` | Сервисы и логи: статус, рестарт всех, логи, вкл/выкл/рестарт по каждому + init |
 | `6` | Конфиги и бэкапы: перегенерация с diff, `haproxy -c`, миграция → v3, обновление, откат, глобальные опции |
+| `?` | Шпаргалка по форматам |
+| `0` | Выход / назад |
 
 ---
 
@@ -653,6 +655,8 @@ backend bk_blackhole
 |--------|----------|
 | `acme:/acme.sh` | Внутренние данные acme.sh (аккаунт, сертификаты) |
 | `./web/certs:/etc/haproxy/certs` | Выпущенные сертификаты (PEM-файлы) |
+| `./stream/haproxy.cfg`, `./web/haproxy.cfg` | Сгенерированные конфиги (`:ro` в контейнерах) |
+| `/var/run/docker.sock` (`:ro`, только acme) | Рестарт `haproxy-web` deploy-hook'ом после обновления сертов |
 
 ### Сеть
 
@@ -827,8 +831,9 @@ COND: `VAR==val[&&VAR2!=val2]`, значения через запятую = И�
 
 ## Формат sites.conf v3
 
-Ядро нейтрально: stream = SNI-маршруты, web = Host-маршруты. Никаких
-`reality/xray` в скриптах и формате — конкретика живет только в пресетах.
+Ядро нейтрально: stream = SNI-маршруты, web = Host-маршруты. Имена
+`reality/xray` живут только в пресетах; единственное исключение в ядре —
+`xray_xver` (зеркало `realitySettings.xver` для проверки PROXY-пары Xray→web).
 Файлы v1/v2 читаются (автоконверсия в памяти, семантика сохраняется —
 проверено e2e-тестом миграции), запись всегда v3.
 
@@ -856,6 +861,7 @@ GLOBAL_OPTS=(
   "blackhole=deny"                     # deny|tarpit
   "blackhole_deny_status=404"          # код для deny (дефолт 403)
   "stream_web_proxy=v2" "web_accept_proxy=on"  # PROXY-пара (парность проверяется!)
+  "xray_xver=v2"                       # зеркало realitySettings.xver (сверка с web_accept_proxy!)
   "backend_check=tcp"                  # healthcheck-и (шумят в логах, opt-in)
   "forwardfor_backends=bk_site_x_com_11443"    # option forwardfor точечно
   "stream_log_sni=on"                  # SNI в stream-лог

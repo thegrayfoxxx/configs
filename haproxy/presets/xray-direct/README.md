@@ -28,9 +28,10 @@ flowchart LR
 1. Inbound: `inbounds[].listen: "*"` (`:443`), `inbounds[].streamSettings.realitySettings.serverNames=[STUB_DOMAIN]`,
    `inbounds[].streamSettings.realitySettings.target=127.0.0.1:8443`
    (raw TCP fallback, SNI сохраняется — web отдаст правильный серт).
-2. PROXY на ноге fallback: визард спрашивает `WEB_ACCEPT_PROXY`.
-   Правило: значение = `inbounds[].streamSettings.realitySettings.xver` твоего инбаунда —
-   `xver: 2` → отвечай `on`, нет `xver` (0) → `off`.
+2. PROXY на ноге fallback: визард спрашивает `WEB_ACCEPT_PROXY` и `XRAY_XVER`.
+   Правило: оба значения = `inbounds[].streamSettings.realitySettings.xver` твоего инбаунда —
+   `xver: 2` → отвечай `on` / `v2`, нет `xver` (0) → `off` / `off`.
+   `XRAY_XVER` — зеркало для проверки парности (генератор варнит при рассинхроне).
    > ❌ Рассинхрон (Xray шлет `xver`, а web без `accept-proxy` — или наоборот)
    > роняет весь fallback: браузеры без ключа перестанут открываться.
    > В логах web при этом флуд `not a PROXY header`.

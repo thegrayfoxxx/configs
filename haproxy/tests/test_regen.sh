@@ -97,7 +97,9 @@ EOF
   printf 'ДА\ny\ny\n\n' > "$TMP/tty-yes"
   export MENU_TTY="$TMP/tty-yes"
   # shellcheck disable=SC1091
-  source "$PROJ/scripts/ui/menu.sh" # переоткрыть FD на новый файл
+  source "$PROJ/scripts/lib/common.sh" # переоткрыть FD на новый файл (FD живет в common.sh)
+  # shellcheck disable=SC1091
+  source "$PROJ/scripts/ui/menu.sh"
   cmd_regen > "$TMP/r2.log" 2>&1 || true
   ! grep -q 'is_s_1' "$TMP/stream/haproxy.cfg" \
     && printf "  ok: снос с ДА применен\n" \

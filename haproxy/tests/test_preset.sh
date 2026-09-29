@@ -389,6 +389,45 @@ EOF
   rm -rf "$TMP"
 }
 
+# --- общий FD: pick (pread) + пауза (tread) на одном файле не расходятся ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  # show_menu: 2 (показать) -> 1 (первый пресет) -> Enter (пауза) -> 0 (выход).
+  printf '2\n1\n\n0\n' > "$TMP/tty-shared"
+  timeout 25 bash -c 'PRESET_TTY="$1/tty-shared" MENU_TTY="$1/tty-shared" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" > "$1/shared.log" 2>&1' _ "$TMP" "$PROJ" \
+    || { printf "  FAIL: shared-FD завис/упал\n"; fail=1; }
+  grep -q 'Вопросы визарда' "$TMP/shared.log" \
+    && printf "  ok: pick+пауза на одном файле\n" \
+    || { printf "  FAIL: shared-FD рассинхрон\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
+# --- warn: битое условие — ошибка, а не молчаливый скип ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  mkdir -p "$TMP/presets/badwarn"
+  cat > "$TMP/presets/badwarn/preset.conf" << 'EOF'
+ACME_EMAIL="{{ACME_EMAIL}}"
+GLOBAL_OPTS=(
+)
+EOF
+  cat > "$TMP/presets/badwarn/questions" << 'EOF'
+ACME_EMAIL|Email|mail@example.com|email
+warn:BOGUS-COND|текст
+EOF
+  printf 'ACME_EMAIL=t@e.com\n' > "$TMP/answers"
+  if PRESETS_DIR_OVERRIDE="$TMP/presets" HAPROXY_DIR_OVERRIDE="$TMP" bash "$PROJ/scripts/preset.sh" apply badwarn --dry-run --answers "$TMP/answers" >/dev/null 2>&1; then
+    printf "  FAIL: битое warn принято\n"; fail=1
+  else
+    printf "  ok: битое warn — ошибка\n"
+  fi
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
 # --- #if/#else юнит на временном пресете ---
 {
   TMP="$(mktmp)"

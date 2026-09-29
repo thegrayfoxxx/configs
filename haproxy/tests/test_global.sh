@@ -46,4 +46,17 @@ EOF
   rm -rf "$TMP"
 }
 
+# --- EOF в меню — чистый выход 0, а не смерть под set -e ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  cp "$PROJ/tests/fixtures/sites6-web-direct.conf" "$TMP/sites.conf"
+  : > "$TMP/tty-empty"
+  timeout 25 bash -c 'MENU_TTY="$1/tty-empty" HAPROXY_DIR_OVERRIDE="$1" bash "$2/scripts/commands/global.sh" > "$1/eof.log" 2>&1' _ "$TMP" "$PROJ" \
+    && printf "  ok: EOF выходит чисто\n" \
+    || { printf "  FAIL: EOF убил меню\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
 exit "$fail"

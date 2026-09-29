@@ -135,6 +135,9 @@ edit_proxy() {
   v=$(ask_default "web_accept_proxy (читать PROXY на web: off/on)" "$(g_get web_accept_proxy off)")
   case "$v" in off|on) ;; *) log_error "❌ Жди off/on"; return ;; esac
   g_set web_accept_proxy "$v"
+  v=$(ask_default "xray_xver (Xray шлет PROXY в web-таргет, realitySettings.xver: off/v2)" "$(g_get xray_xver off)")
+  case "$v" in off|v2) ;; *) log_error "❌ Жди off/v2"; return ;; esac
+  g_set xray_xver "$v"
   g_save || return
   confirm_restart
 }
@@ -203,7 +206,7 @@ show_menu() {
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
     local choice
-    tread -r choice
+    tread -r choice || exit 0
     case "$choice" in
       1) edit_timeouts; printf "\n"; menu_pause ;;
       2) edit_binds; printf "\n"; menu_pause ;;
