@@ -56,7 +56,7 @@ edit_timeouts() {
   printf "  ${RED}0.${NC} Назад\n"
   printf "  ${CYAN}👉 Пункт:${NC} "
   local sel
-  read -r sel < /dev/tty || return
+  tread -r sel || return
   case "$sel" in
     1)
       g_set timeout_connect "5s"
@@ -74,16 +74,16 @@ edit_timeouts() {
       ;;
     3)
       local v
-      v=$(ask_default "timeout connect" "$(g_get timeout_connect 5s)" < /dev/tty)
+      v=$(ask_default "timeout connect" "$(g_get timeout_connect 5s)")
       [[ "$v" =~ ^[0-9]+(s|m|h|d)$ ]] || { log_error "❌ Жди длительность (50s/1h)"; return; }
       g_set timeout_connect "$v"
-      v=$(ask_default "timeout client" "$(g_get timeout_client 50s)" < /dev/tty)
+      v=$(ask_default "timeout client" "$(g_get timeout_client 50s)")
       [[ "$v" =~ ^[0-9]+(s|m|h|d)$ ]] || { log_error "❌ Жди длительность"; return; }
       g_set timeout_client "$v"
-      v=$(ask_default "timeout server" "$(g_get timeout_server 50s)" < /dev/tty)
+      v=$(ask_default "timeout server" "$(g_get timeout_server 50s)")
       [[ "$v" =~ ^[0-9]+(s|m|h|d)$ ]] || { log_error "❌ Жди длительность"; return; }
       g_set timeout_server "$v"
-      v=$(ask_default "timeout tunnel (пусто/- = убрать)" "$(g_get timeout_tunnel "")" < /dev/tty)
+      v=$(ask_default "timeout tunnel (пусто/- = убрать)" "$(g_get timeout_tunnel "")")
       if [ "$v" = "-" ] || [ -z "$v" ]; then
         g_del timeout_tunnel
       else
@@ -101,11 +101,11 @@ edit_timeouts() {
 edit_binds() {
   load_sites
   local v
-  v=$(ask_default "bind stream (SNI-вход, *:443)" "$(g_get bind_stream "*:443")" < /dev/tty)
+  v=$(ask_default "bind stream (SNI-вход, *:443)" "$(g_get bind_stream "*:443")")
   [[ "$v" =~ ^[^:]+:[0-9]+$ ]] || { log_error "❌ Жди host:порт"; return; }
   validate_port "${v##*:}" "порт" || return
   g_set bind_stream "$v"
-  v=$(ask_default "bind web (терминация; loopback 127.0.0.1:8443 или *:443 без стрима)" "$(g_get bind_web "*:8443")" < /dev/tty)
+  v=$(ask_default "bind web (терминация; loopback 127.0.0.1:8443 или *:443 без стрима)" "$(g_get bind_web "*:8443")")
   [[ "$v" =~ ^[^:]+:[0-9]+$ ]] || { log_error "❌ Жди host:порт"; return; }
   validate_port "${v##*:}" "порт" || return
   g_set bind_web "$v"
@@ -116,10 +116,10 @@ edit_binds() {
 edit_proxy() {
   load_sites
   local v
-  v=$(ask_default "stream_web_proxy (слать PROXY в web: off/v1/v2)" "$(g_get stream_web_proxy off)" < /dev/tty)
+  v=$(ask_default "stream_web_proxy (слать PROXY в web: off/v1/v2)" "$(g_get stream_web_proxy off)")
   case "$v" in off|v1|v2) ;; *) log_error "❌ Жди off/v1/v2"; return ;; esac
   g_set stream_web_proxy "$v"
-  v=$(ask_default "web_accept_proxy (читать PROXY на web: off/on)" "$(g_get web_accept_proxy off)" < /dev/tty)
+  v=$(ask_default "web_accept_proxy (читать PROXY на web: off/on)" "$(g_get web_accept_proxy off)")
   case "$v" in off|on) ;; *) log_error "❌ Жди off/on"; return ;; esac
   g_set web_accept_proxy "$v"
   g_save || return
@@ -129,10 +129,10 @@ edit_proxy() {
 edit_blackhole() {
   load_sites
   local v
-  v=$(ask_default "blackhole (deny/tarpit)" "$(g_get blackhole deny)" < /dev/tty)
+  v=$(ask_default "blackhole (deny/tarpit)" "$(g_get blackhole deny)")
   case "$v" in deny|tarpit) ;; *) log_error "❌ Жди deny/tarpit"; return ;; esac
   g_set blackhole "$v"
-  v=$(ask_default "blackhole_deny_status (100-599, 403)" "$(g_get blackhole_deny_status 403)" < /dev/tty)
+  v=$(ask_default "blackhole_deny_status (100-599, 403)" "$(g_get blackhole_deny_status 403)")
   [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -ge 100 ] && [ "$v" -le 599 ] || { log_error "❌ Жди код 100-599"; return; }
   if [ "$v" = "403" ]; then
     g_del blackhole_deny_status
@@ -146,16 +146,16 @@ edit_blackhole() {
 edit_checks_logs() {
   load_sites
   local v
-  v=$(ask_default "backend_check (off/tcp; tcp шумит в логах Xray)" "$(g_get backend_check off)" < /dev/tty)
+  v=$(ask_default "backend_check (off/tcp; tcp шумит в логах Xray)" "$(g_get backend_check off)")
   case "$v" in off|tcp) ;; *) log_error "❌ Жди off/tcp"; return ;; esac
   g_set backend_check "$v"
-  v=$(ask_default "stream_log_sni (off/on)" "$(g_get stream_log_sni off)" < /dev/tty)
+  v=$(ask_default "stream_log_sni (off/on)" "$(g_get stream_log_sni off)")
   case "$v" in off|on) ;; *) log_error "❌ Жди off/on"; return ;; esac
   g_set stream_log_sni "$v"
-  v=$(ask_default "web_capture_headers (off/on)" "$(g_get web_capture_headers off)" < /dev/tty)
+  v=$(ask_default "web_capture_headers (off/on)" "$(g_get web_capture_headers off)")
   case "$v" in off|on) ;; *) log_error "❌ Жди off/on"; return ;; esac
   g_set web_capture_headers "$v"
-  v=$(ask_default "forwardfor_backends (через запятую bk_*, пусто/- = убрать)" "$(g_get forwardfor_backends "")" < /dev/tty)
+  v=$(ask_default "forwardfor_backends (через запятую bk_*, пусто/- = убрать)" "$(g_get forwardfor_backends "")")
   if [ "$v" = "-" ] || [ -z "$v" ]; then
     g_del forwardfor_backends
   else
@@ -190,7 +190,7 @@ show_menu() {
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
     local choice
-    read -r choice < /dev/tty
+    tread -r choice
     case "$choice" in
       1) edit_timeouts; printf "\n"; menu_pause ;;
       2) edit_binds; printf "\n"; menu_pause ;;

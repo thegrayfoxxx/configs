@@ -19,6 +19,8 @@ services:
     image: haproxy:alpine
     container_name: haproxy-web
     restart: always
+    # root как у stream: web-direct слушает привилегированный :443 напрямую.
+    user: root
     network_mode: host
     profiles:
       - web

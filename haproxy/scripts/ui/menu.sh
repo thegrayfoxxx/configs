@@ -6,18 +6,43 @@
 # TTY для чтения (переопределяется тестами через MENU_TTY).
 TTY_IN="${MENU_TTY:-/dev/tty}"
 
+# Общий FD ввода: каждое `read < файл` переоткрывало бы файл с нулевого офсета
+# и многошаговые визарды зацикливались бы на первой строке (тот же класс бага,
+# что ловил PRESET_FD в preset.sh). Открываем ОДИН раз, читаем через tread.
+# Реальный /dev/tty stateful и так — поведение для интерактива не меняется.
+TTY_FD=-1
+{ exec {TTY_FD}<"$TTY_IN"; } 2>/dev/null || TTY_FD=-1
+
+# tread — чтение строки ввода как read, но через общий FD (офсет не сбрасывается).
+# Использование: tread -r var [-p prompt]. FD нет (неинтерактив без TTY) — читаем
+# напрямую из TTY_IN как раньше. Возврат как у read (EOF -> 1).
+tread() {
+  local __rc=0
+  if [ "$TTY_FD" -ge 0 ]; then
+    read "$@" <&$TTY_FD || __rc=1
+  else
+    read "$@" < "$TTY_IN" || __rc=1
+  fi
+  [ "$__rc" -ne 0 ] && return 1
+  local __v="${@: -1}"
+  case "$__v" in
+    -*) return 0 ;;
+  esac
+  printf -v "$__v" "%s" "${!__v%$'\r'}"
+}
+
 # menu_confirm [промпт] — 0 если y/Y, 1 иначе. Пусто = нет.
 menu_confirm() {
   local prompt="${1:-Применить? [y/N]:}"
   local ans
   printf "  ${CYAN}👉 %s${NC} " "$prompt"
-  read -r ans < "$TTY_IN"
+  tread -r ans || return 1
   [ "$ans" = "y" ] || [ "$ans" = "Y" ]
 }
 
 # menu_pause — ждать Enter из TTY.
 menu_pause() {
-  read -p "[Enter]..." < "$TTY_IN"
+  tread -p "[Enter]..." dummy || true
 }
 
 # menu_invalid — неверный пункт.
@@ -30,7 +55,7 @@ menu_invalid() {
 confirm_restart() {
   printf "  ${CYAN}👉 Перезапустить сервисы? [Y/n]:${NC} "
   local ans
-  read -r ans < "$TTY_IN"
+  tread -r ans || ans=""
   if [ -z "$ans" ] || [ "$ans" = "Y" ] || [ "$ans" = "y" ]; then
     if safe_docker_compose restart; then
       log_info "✅ Сервисы перезапущены"
@@ -45,7 +70,7 @@ confirm_restart() {
 ask_default() {
   local prompt="$1" cur="$2" ans
   printf "  ${CYAN}%s [%s]:${NC} " "$prompt" "$cur" >&2
-  read -r ans < "$TTY_IN" || ans=""
+  tread -r ans || ans=""
   [ -z "$ans" ] && ans="$cur"
   printf "%s" "$ans"
 }
