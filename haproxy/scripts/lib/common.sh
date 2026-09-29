@@ -300,6 +300,19 @@ ensure_sites_conf() {
   fi
 }
 
+# __ask_validate_inline — вопрос валидации там, где нет ask_validate из menu.sh
+# (common.sh не видит menu.sh). Читает /dev/tty как соседи. Возврат 0 = проверять.
+__ask_validate_inline() {
+  local _a
+  printf "  ${CYAN}👉 Проверить конфиг haproxy -c перед записью? [Y/n]:${NC} "
+  read -r _a < /dev/tty || _a=""
+  if [ "$_a" = "n" ] || [ "$_a" = "N" ]; then
+    log_warn "  ⚠  Без проверки: битый конфиг ляжет только на рестарте (crash-loop :443)"
+    return 1
+  fi
+  return 0
+}
+
 ensure_configs() {
   local stream_cfg="${HAPROXY_DIR}/stream/haproxy.cfg"
   local web_cfg="${HAPROXY_DIR}/web/haproxy.cfg"
@@ -313,7 +326,11 @@ ensure_configs() {
     printf "${CYAN}👉 Пункт:${NC} "
     read -r gen_choice < /dev/tty || gen_choice=""
     if [ "$gen_choice" = "1" ]; then
-      generate_configs
+      if __ask_validate_inline; then
+        generate_configs
+      else
+        generate_configs --no-validate
+      fi
     elif [ "$gen_choice" = "3" ]; then
       preview_configs || true
     fi
@@ -334,7 +351,11 @@ ensure_configs() {
       printf "${CYAN}👉 Пункт:${NC} "
       read -r regen_choice < /dev/tty || regen_choice=""
       if [ "$regen_choice" = "1" ]; then
-        generate_configs
+        if __ask_validate_inline; then
+          generate_configs
+        else
+          generate_configs --no-validate
+        fi
       elif [ "$regen_choice" = "3" ]; then
         preview_configs || true
       fi
@@ -448,7 +469,11 @@ interactive_setup() {
 
   # Генерируем конфиги если есть данные
   if [ "${#WEB_ROUTES[@]}" -gt 0 ] || [ -n "$stream_sni" ]; then
-    generate_configs
+    if __ask_validate_inline; then
+      generate_configs
+    else
+      generate_configs --no-validate
+    fi
   fi
 
   log_warn "  ⚠  Проверь: ${CYAN}${SITES_CONF}${NC}"
