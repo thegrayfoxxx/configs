@@ -29,7 +29,7 @@ show_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       0) exit 0 ;;
@@ -40,7 +40,7 @@ show_menu() {
           continue
         fi
         printf "  ${CYAN}👉 Номер бэкапа:${NC} "
-        read -r num < /dev/tty
+        tread -r num
         if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "$i" ]; then
           log_error "❌ Нет такого номера"
           sleep 1
@@ -48,7 +48,7 @@ show_menu() {
         fi
         local target="${names[$((num - 1))]}"
         printf "  ${YELLOW}⚠  Откатить sites.conf + оба haproxy.cfg к %s? [y/N]:${NC} " "$target"
-        read -r ans < /dev/tty
+        tread -r ans
         if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
           if rollback_backup "$target"; then
             log_warn "  ⚠  Не забудь перезапустить сервисы (п.5 главного меню), если конфиги уже применялись"

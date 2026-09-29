@@ -11,17 +11,14 @@ source "${SCRIPT_DIR}/../lib/common.sh"
 source "${SCRIPT_DIR}/../ui/menu.sh"
 
 PRESETS_DIR="${PRESETS_DIR_OVERRIDE:-${HAPROXY_DIR}/presets}"
-# PRESET_TTY: откуда визард читает ответы (дефолт /dev/tty; тесты подсовывают файл).
-# Ввод открывается ОДИН раз на FD: каждое `read < file` переоткрывало бы файл
-# с нулевого офсета и визард зацикливался на первой строке. Если открыть
-# нечего (неинтерактивный list/show/diff без TTY) — FD остаётся закрыт,
-# pread падает обратно на путь (одноразовые чтения там безопасны).
-TTY_IN="${PRESET_TTY:-/dev/tty}"
+# Единый офсет с tread: TTY_IN/TTY_FD уже разрешены в lib/common.sh с учетом
+# PRESET_TTY. Дублируем дескриптор вместо второго open — иначе pread и tread
+# на одном файле читали бы независимо друг от друга.
+# (PRESET_TTY читается визардом через pread ниже; меню-хелперы — через tread.)
 PRESET_FD=-1
-# Открытие может упасть (нет /dev/tty в неинтерактивной среде). Сообщение
-# об ошибке редиректа exec печатается до применения 2>/dev/null в той же
-# строке, поэтому открываем в группе с заранее перенаправленным stderr.
-{ exec {PRESET_FD}<"$TTY_IN"; } 2>/dev/null || PRESET_FD=-1
+if [ "${TTY_FD:--1}" -ge 0 ]; then
+  { exec {PRESET_FD}<&$TTY_FD; } 2>/dev/null || PRESET_FD=-1
+fi
 
 # pread — чтение строки ввода как read, но через общий FD (офсет не сбрасывается).
 # Использование: pread -r var [-p prompt]; код возврата как у read (EOF -> 1).
@@ -304,9 +301,10 @@ collect() {
     fi
     # when: условие не выполнено — вопрос пропускаем (ответы из --answers игнорируем с варнингом).
     if [ -n "$when_cond" ]; then
-      cond_satisfied "$when_cond"
-      local _wcrc=$?
+      local _wcrc=0
+      cond_satisfied "$when_cond" || _wcrc=$?
       if [ "$_wcrc" -eq 2 ]; then
+        log_error "  ❌ Битое when-условие у вопроса '${var}'"
         return 1
       fi
       if [ "$_wcrc" -ne 0 ]; then
@@ -429,13 +427,21 @@ collect() {
       wtext="${wtext%%|when:*}"
     fi
     if [ -n "$wwhen" ]; then
-      cond_satisfied "$wwhen" || continue
-      local _wcrc=$?
-      [ "$_wcrc" -eq 2 ] && return 1
+      local _wcrc=0
+      cond_satisfied "$wwhen" || _wcrc=$?
+      if [ "$_wcrc" -eq 2 ]; then
+        log_error "  ❌ Битое when-условие в warn-строке: '${line}'"
+        return 1
+      fi
+      [ "$_wcrc" -ne 0 ] && continue
     fi
-    cond_satisfied "$wcond" || continue
-    local _ccrc=$?
-    [ "$_ccrc" -eq 2 ] && return 1
+    local _ccrc=0
+    cond_satisfied "$wcond" || _ccrc=$?
+    if [ "$_ccrc" -eq 2 ]; then
+      log_error "  ❌ Битое условие в warn-строке: '${line}'"
+      return 1
+    fi
+    [ "$_ccrc" -ne 0 ] && continue
     log_warn "  ⚠  ${wtext}"
   done < "$qfile"
 }
@@ -494,9 +500,10 @@ render_preset() { # render <preset> -> stdout готовый sites.conf
     if [[ "$line" =~ ^[[:space:]]*#if[[:space:]]+(.+)$ ]]; then
       cond="${BASH_REMATCH[1]}"
       cond="$(printf "%s" "$cond" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-      cond_satisfied "$cond"
-      local _crc=$?
+      local _crc=0
+      cond_satisfied "$cond" || _crc=$?
       if [ "$_crc" -eq 2 ]; then
+        log_error "  ❌ Битое #if-условие (пресет битый): '${cond}'"
         return 1
       elif [ "$_crc" -eq 0 ]; then
         st_cond+=(true)

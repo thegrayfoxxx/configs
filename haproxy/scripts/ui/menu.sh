@@ -3,33 +3,9 @@
 # UI-хелперы меню: подтверждения, паузы, неверный пункт.
 # Источник: source ui/menu.sh ПОСЛЕ lib/common.sh (нужны log_*/цвета).
 
-# TTY для чтения (переопределяется тестами через MENU_TTY).
-TTY_IN="${MENU_TTY:-/dev/tty}"
-
-# Общий FD ввода: каждое `read < файл` переоткрывало бы файл с нулевого офсета
-# и многошаговые визарды зацикливались бы на первой строке (тот же класс бага,
-# что ловил PRESET_FD в preset.sh). Открываем ОДИН раз, читаем через tread.
-# Реальный /dev/tty stateful и так — поведение для интерактива не меняется.
-TTY_FD=-1
-{ exec {TTY_FD}<"$TTY_IN"; } 2>/dev/null || TTY_FD=-1
-
-# tread — чтение строки ввода как read, но через общий FD (офсет не сбрасывается).
-# Использование: tread -r var [-p prompt]. FD нет (неинтерактив без TTY) — читаем
-# напрямую из TTY_IN как раньше. Возврат как у read (EOF -> 1).
-tread() {
-  local __rc=0
-  if [ "$TTY_FD" -ge 0 ]; then
-    read "$@" <&$TTY_FD || __rc=1
-  else
-    read "$@" < "$TTY_IN" || __rc=1
-  fi
-  [ "$__rc" -ne 0 ] && return 1
-  local __v="${@: -1}"
-  case "$__v" in
-    -*) return 0 ;;
-  esac
-  printf -v "$__v" "%s" "${!__v%$'\r'}"
-}
+# TTY-ввод — единый из lib/common.sh (TTY_IN/TTY_FD/tread): один FD на всех,
+# иначе файловый ввод читался бы с нулевого офсета в каждом меню.
+# Источник: source ui/menu.sh ПОСЛЕ lib/common.sh (нужны log_*/цвета и tread).
 
 # menu_confirm [промпт] — 0 если y/Y, 1 иначе. Пусто = нет.
 menu_confirm() {

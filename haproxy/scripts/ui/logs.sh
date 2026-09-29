@@ -25,7 +25,7 @@ cmd_logs() {
   printf "\n"
   printf "${CYAN}👉 Пункт:${NC} "
   local log_choice
-  read -r log_choice < "$TTY_IN"
+  tread -r log_choice
   case "$log_choice" in
     1) _logs_follow 'haproxy-stream' ;;
     2) _logs_follow 'haproxy-web' ;;

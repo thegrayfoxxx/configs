@@ -27,7 +27,7 @@ svc_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1)
@@ -35,7 +35,7 @@ svc_menu() {
         log_info "✅ ${svc} включён. Применится при следующем up."
         printf "\n"
         printf "  ${CYAN}👉 Поднять сейчас? [Y/n]:${NC} "
-        read -r ans < /dev/tty
+        tread -r ans
         if [ -z "$ans" ] || [ "$ans" = "Y" ] || [ "$ans" = "y" ]; then
           safe_docker_compose up -d || log_error "❌ Не удалось поднять ${svc}"
         fi
@@ -45,7 +45,7 @@ svc_menu() {
         log_info "✅ ${svc} выключен (убран из набора)."
         if svc_running "$svc"; then
           printf "  ${CYAN}👉 Остановить запущенный контейнер? [Y/n]:${NC} "
-          read -r ans < /dev/tty
+          tread -r ans
           if [ -z "$ans" ] || [ "$ans" = "Y" ] || [ "$ans" = "y" ]; then
             docker stop "$cname" 2>/dev/null || log_error "❌ Не удалось остановить ${cname}"
           fi
@@ -88,7 +88,7 @@ show_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) bash "${SCRIPT_DIR}/services.sh" __svc stream < /dev/tty  || true ;;

@@ -14,7 +14,7 @@ select_domain() {
     printf "  ${GREEN}2.${NC} Выбрать из списка маршрутов\n" > /dev/tty
     printf "  ${RED}0.${NC} ⬅️  Назад\n\n" > /dev/tty
     printf "${CYAN}👉 Пункт:${NC} " > /dev/tty
-    read -r sel < /dev/tty
+    tread -r sel
 
     if [ "$sel" = "0" ] || [ -z "$sel" ]; then
       return 1
@@ -33,7 +33,7 @@ select_domain() {
         printf "  ${GREEN}%d.${NC} %s\n" "$((i+1))" "${_hosts[$i]}" > /dev/tty
       done
       printf "\n  ${CYAN}👉 Номер хоста (0 - отмена):${NC} " > /dev/tty
-      read -r num < /dev/tty
+      tread -r num
 
       if [ "$num" = "0" ] || [ -z "$num" ]; then
         return 1
@@ -50,7 +50,7 @@ select_domain() {
   fi
 
   printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} " > /dev/tty
-  read -r domain < /dev/tty
+  tread -r domain
   [ -z "$domain" ] && return 1
   if ! validate_domain "$domain"; then
     return 1
@@ -74,7 +74,7 @@ show_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) issue_cert || true ;;
@@ -101,7 +101,7 @@ issue_cert() {
   load_sites
   if [ -z "${ACME_EMAIL:-}" ]; then
     printf "  ${CYAN}👉 Email:${NC} "
-    read -r ACME_EMAIL < /dev/tty
+    tread -r ACME_EMAIL
     validate_email "$ACME_EMAIL" || return
   fi
 
@@ -126,7 +126,7 @@ deploy_cert() {
   print_header "ДЕПЛОЙ СЕРТИФИКАТА" "🚀"
 
   printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} "
-  read -r domain < /dev/tty
+  tread -r domain
   [ -z "$domain" ] && return
   if ! validate_domain "$domain"; then
     return
@@ -154,7 +154,7 @@ issue_and_deploy() {
   load_sites
   if [ -z "${ACME_EMAIL:-}" ]; then
     printf "  ${CYAN}👉 Email:${NC} "
-    read -r ACME_EMAIL < /dev/tty
+    tread -r ACME_EMAIL
     validate_email "$ACME_EMAIL" || return
   fi
 
@@ -221,7 +221,7 @@ inspect_cert() {
   print_header "ПРОВЕРКА СЕРТИФИКАТА" "🔍"
 
   printf "  ${CYAN}👉 Домен:${NC} "
-  read -r domain < /dev/tty
+  tread -r domain
   [ -z "$domain" ] && { log_error "❌ Домен не может быть пустым"; return; }
   if ! validate_domain "$domain"; then
     return
@@ -249,14 +249,14 @@ remove_cert() {
   print_header "УДАЛЕНИЕ СЕРТИФИКАТА" "🗑️"
 
   printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} "
-  read -r domain < /dev/tty
+  tread -r domain
   [ -z "$domain" ] && return
   if ! validate_domain "$domain"; then
     return
   fi
 
   printf "  ${YELLOW}⚠️  Удалить сертификат для ${domain}? [y/N]:${NC} "
-  read -r confirm < /dev/tty
+  tread -r confirm
   [ "$confirm" != "y" ] && return
 
   safe_docker_compose exec acme acme.sh --remove -d "$domain" || log_warn "⚠️  Не удалось удалить через acme.sh"
@@ -273,7 +273,7 @@ force_renew() {
   print_header "ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ" "⚡"
 
   printf "  ${CYAN}👉 Домен (Enter = отмена):${NC} "
-  read -r domain < /dev/tty
+  tread -r domain
   [ -z "$domain" ] && return
   if ! validate_domain "$domain"; then
     return

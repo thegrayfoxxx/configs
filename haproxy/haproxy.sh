@@ -21,11 +21,11 @@ source "${SCRIPTS_DIR}/ui/regen.sh"
 # shellcheck disable=SC1091
 source "${SCRIPTS_DIR}/ui/validate.sh"
 
-# Проверяем sites.conf при запуске
-ensure_sites_conf
+# Проверяем sites.conf при запуске (best-effort: неуспех не должен убивать меню).
+ensure_sites_conf || log_warn "  ⚠  Продолжаю без sites.conf"
 
-# Проверяем конфиги HAProxy
-ensure_configs
+# Проверяем конфиги HAProxy (best-effort: неуспех не должен убивать меню).
+ensure_configs || log_warn "  ⚠  Продолжаю без проверки конфигов"
 
 print_main_menu() {
   clear_screen
@@ -73,7 +73,7 @@ cmd_services_menu() {
   while true; do
     print_services_menu
     local choice
-    read -r choice < "$TTY_IN"
+    tread -r choice
     case "$choice" in
       1) cmd_status || true ;;
       2) cmd_restart_all || true ;;
@@ -105,7 +105,7 @@ cmd_configs_menu() {
   while true; do
     print_configs_menu
     local choice
-    read -r choice < "$TTY_IN"
+    tread -r choice
     case "$choice" in
       1) cmd_regen || true ;;
       2) cmd_validate || true ;;
@@ -149,7 +149,7 @@ show_menu() {
   while true; do
     print_main_menu
     local choice
-    read -r choice < "$TTY_IN"
+    tread -r choice
     dispatch "$choice"
   done
 }

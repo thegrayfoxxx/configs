@@ -17,7 +17,7 @@ for svc in stream web acme; do
   local_on="Y"
   svc_is_enabled "$svc" || local_on="n"
   printf "  ${CYAN}👉 Включить %s? [Y/n] (сейчас: %s):${NC} " "$svc" "$local_on"
-  read -r ans < /dev/tty
+  tread -r ans
   if [ -z "$ans" ] || [ "$ans" = "Y" ] || [ "$ans" = "y" ]; then
     svc_enable "$svc"
   else
@@ -30,7 +30,7 @@ printf "\n"
 # Шаг 2: sites.conf — пресет или ручной интерактив
 if [ -f "${SCRIPT_DIR}/preset.sh" ]; then
   printf "  ${CYAN}👉 Начать с готового пресета? [y/N]:${NC} "
-  read -r ans < /dev/tty
+  tread -r ans
   if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
     if bash "${SCRIPT_DIR}/preset.sh" < /dev/tty; then
       printf "\n"
@@ -55,7 +55,7 @@ fi
 # Шаг 4: up
 printf "\n"
 printf "  ${CYAN}👉 Поднять включённые сервисы сейчас? [Y/n]:${NC} "
-read -r ans < /dev/tty
+tread -r ans
 if [ -z "$ans" ] || [ "$ans" = "Y" ] || [ "$ans" = "y" ]; then
   require_docker
   if safe_docker_compose up -d; then

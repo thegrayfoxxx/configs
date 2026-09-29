@@ -18,6 +18,37 @@ if [ -n "${NO_COLOR:-}" ]; then
   NC=""
 fi
 
+# --- ВВОД (единый для всех меню и визардов) ---
+# Источник: PRESET_TTY (визарды пресетов/тесты) -> MENU_TTY (тесты) -> /dev/tty.
+# Открывается ОДИН раз на FD: повторные `read < файл` переоткрывали бы файл
+# с нулевого офсета, и многошаговые визарды на файловом вводе зацикливались
+# или читали сначала. Реальный /dev/tty stateful и так — для интерактива
+# поведение не меняется.
+TTY_IN="${PRESET_TTY:-${MENU_TTY:-/dev/tty}}"
+TTY_FD=-1
+# Открытие может упасть (нет /dev/tty в неинтерактивной среде) — молча, чтения
+# через tread тогда идут напрямую из TTY_IN как раньше.
+{ exec {TTY_FD}<"$TTY_IN"; } 2>/dev/null || TTY_FD=-1
+
+# tread — чтение строки ввода как read, но через общий FD (офсет не сбрасывается).
+# Использование: tread -r var [-p prompt]; код возврата как у read (EOF -> 1).
+# Последний аргумент считается именем переменной: с него срезается висячий
+# \r (вставка из Windows), чтобы CRLF-ввод не отравлял значения и ответы y/n.
+tread() {
+  local __rc=0
+  if [ "$TTY_FD" -ge 0 ]; then
+    read "$@" <&$TTY_FD || __rc=1
+  else
+    read "$@" < "$TTY_IN" || __rc=1
+  fi
+  [ "$__rc" -ne 0 ] && return 1
+  local __v="${@: -1}"
+  case "$__v" in
+    -*) return 0 ;;
+  esac
+  printf -v "$__v" "%s" "${!__v%$'\r'}"
+}
+
 # --- ПУТИ ---
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # HAPROXY_DIR_OVERRIDE нужен тестам: подменяет корень проекта на временную копию
@@ -102,7 +133,8 @@ print_status_box() {
     STREAM_BACKENDS=()
     WEB_BACKENDS=()
     GLOBAL_OPTS=()
-    source_sites_file "$SITES_CONF" 2>/dev/null
+    # Статус best-effort: битый файл не должен убивать меню.
+    source_sites_file "$SITES_CONF" 2>/dev/null || true
     legacy_to_v3_arrays 2>/dev/null || true
     site_count=${#WEB_ROUTES[@]}
     reality_count=${#STREAM_ROUTES[@]}
@@ -197,7 +229,8 @@ print_section_status() {
     STREAM_BACKENDS=()
     WEB_BACKENDS=()
     GLOBAL_OPTS=()
-    source_sites_file "$SITES_CONF" 2>/dev/null
+    # Статус best-effort: битый файл не должен убивать меню.
+    source_sites_file "$SITES_CONF" 2>/dev/null || true
     legacy_to_v3_arrays 2>/dev/null || true
     if [ "$kind" = "stream" ]; then
       routes=(${STREAM_ROUTES[@]+"${STREAM_ROUTES[@]}"})
@@ -293,7 +326,7 @@ ensure_sites_conf() {
   printf "  ${GREEN}1.${NC} Настроить сейчас\n"
   printf "  ${RED}2.${NC} Пропустить\n\n"
   printf "${CYAN}👉 Пункт:${NC} "
-  read -r setup_choice < /dev/tty
+  tread -r setup_choice
 
   if [ "$setup_choice" = "1" ]; then
     interactive_setup
@@ -305,7 +338,7 @@ ensure_sites_conf() {
 __ask_validate_inline() {
   local _a
   printf "  ${CYAN}👉 Проверить конфиг haproxy -c перед записью? [Y/n]:${NC} "
-  read -r _a < /dev/tty || _a=""
+  tread -r _a || _a=""
   if [ "$_a" = "n" ] || [ "$_a" = "N" ]; then
     log_warn "  ⚠  Без проверки: битый конфиг ляжет только на рестарте (crash-loop :443)"
     return 1
@@ -324,7 +357,7 @@ ensure_configs() {
     printf "  ${GREEN}3.${NC} Только показать diff (без записи)\n"
     printf "  ${RED}2.${NC} Пропустить\n\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r gen_choice < /dev/tty || gen_choice=""
+    tread -r gen_choice || gen_choice=""
     if [ "$gen_choice" = "1" ]; then
       if __ask_validate_inline; then
         generate_configs
@@ -349,7 +382,7 @@ ensure_configs() {
       printf "  ${GREEN}3.${NC} Только показать diff (без записи)\n"
       printf "  ${RED}2.${NC} Пропустить\n\n"
       printf "${CYAN}👉 Пункт:${NC} "
-      read -r regen_choice < /dev/tty || regen_choice=""
+      tread -r regen_choice || regen_choice=""
       if [ "$regen_choice" = "1" ]; then
         if __ask_validate_inline; then
           generate_configs
@@ -371,7 +404,7 @@ interactive_setup() {
   # Email
   while true; do
     printf "  ${CYAN}📧 Email для сертификатов:${NC} "
-    read -r acme_email < /dev/tty
+    tread -r acme_email
     if validate_email "$acme_email" 2>/dev/null; then
       break
     fi
@@ -381,7 +414,7 @@ interactive_setup() {
   # Stream-маршруты (нейтрально: SNI -> backend, без xray-специфики)
   printf "\n  ${CYAN}🔀 Stream-маршруты (SNI -> backend)${NC}\n"
   printf "  ${CYAN}   SNI через пробел (Enter = пропустить):${NC} "
-  read -r stream_sni < /dev/tty
+  tread -r stream_sni
 
   local stream_to="" stream_name="sni-1"
   if [ -n "$stream_sni" ]; then
@@ -402,7 +435,7 @@ interactive_setup() {
   if [ -n "$stream_sni" ]; then
     while true; do
       printf "  ${CYAN}   Backend host:порт [127.0.0.1:10443]:${NC} "
-      read -r stream_to < /dev/tty
+      tread -r stream_to
       [ -z "$stream_to" ] && stream_to="127.0.0.1:10443"
       local _h="${stream_to%:*}"
       local _p="${stream_to##*:}"
@@ -418,7 +451,7 @@ interactive_setup() {
   local web_routes=()
   while true; do
     printf "  ${CYAN}   Домен (Enter = готово):${NC} "
-    read -r domain < /dev/tty
+    tread -r domain
     [ -z "$domain" ] && break
 
     if ! validate_domain "$domain" 2>/dev/null; then
@@ -427,7 +460,7 @@ interactive_setup() {
 
     while true; do
       printf "  ${CYAN}   Backend host:порт:${NC} "
-      read -r port < /dev/tty
+      tread -r port
       if [ -z "$port" ]; then
         printf "  ${RED}   ✗ Backend обязателен${NC}\n"
         continue
@@ -478,7 +511,7 @@ interactive_setup() {
 
   log_warn "  ⚠  Проверь: ${CYAN}${SITES_CONF}${NC}"
   printf "\n"
-  read -p "[Enter] для продолжения..." < /dev/tty
+  tread -p "[Enter] для продолжения..." _tread_pause
 }
 
 # legacy_to_v3_arrays — in-memory миграция v1/v2 -> v3 после source файла.
@@ -566,7 +599,7 @@ load_sites() {
   if ! source_sites_file "$SITES_CONF"; then
     die "❌ Ошибка чтения ${SITES_CONF}. Проверь синтаксис файла."
   fi
-  legacy_to_v3_arrays
+  legacy_to_v3_arrays || die "❌ Битые legacy-массивы в ${SITES_CONF}."
 }
 
 # source_sites_file <файл> — source конфига с защитой служебного окружения.

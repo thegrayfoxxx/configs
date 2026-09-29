@@ -24,7 +24,7 @@ show_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) rt_menu || true ;;
@@ -50,7 +50,7 @@ rt_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) add_route || true ;;
@@ -78,7 +78,7 @@ add_route() {
 
   # SNI
   printf "  ${CYAN}👉 SNI через пробел (например, vpn.example.com):${NC} "
-  read -r sni < /dev/tty
+  tread -r sni
   [ -z "$sni" ] && { log_error "❌ SNI не может быть пустым"; return; }
   if [ "$sni" = "default" ]; then
     log_error "❌ Маршрут default создается автоматически (правится в файле/пресете)"
@@ -102,7 +102,7 @@ add_route() {
     done
     printf "  ${GREEN}0.${NC} Новый адрес\n"
     printf "  ${CYAN}👉 Номер ящика (0 = новый):${NC} "
-    read -r be_num < /dev/tty
+    tread -r be_num
     [ -z "$be_num" ] && be_num="0"
     if ! [[ "$be_num" =~ ^[0-9]+$ ]] || [ "$be_num" -gt "$bi" ]; then
       log_error "❌ Неверный номер"
@@ -117,7 +117,7 @@ add_route() {
   if [ -z "$use_ref" ]; then
     # Новый адрес (инлайн-ящик).
     printf "  ${CYAN}👉 Backend host:порт (например, 127.0.0.1:10443):${NC} "
-    read -r to < /dev/tty
+    tread -r to
     [ -z "$to" ] && { log_error "❌ Backend не может быть пустым"; return; }
     local _h="${to%:*}"
     local _p="${to##*:}"
@@ -129,7 +129,7 @@ add_route() {
 
     # PROXY
     printf "  ${CYAN}👉 PROXY-протокол [off]:${NC} "
-    read -r proxy < /dev/tty
+    tread -r proxy
     [ -z "$proxy" ] && proxy="off"
     case "$proxy" in
       off | v1 | v2) ;;
@@ -139,7 +139,7 @@ add_route() {
     # Имя
     local auto_name="sni-$((${#STREAM_ROUTES[@]} + 1))"
     printf "  ${CYAN}👉 Имя маршрута [%s]:${NC} " "$auto_name"
-    read -r name < /dev/tty
+    tread -r name
     [ -z "$name" ] && name="$auto_name"
     if [[ ! "$name" =~ ^[A-Za-z0-9_-]+$ ]]; then
       log_error "❌ Имя: только латиница/цифры/_/-"
@@ -148,7 +148,7 @@ add_route() {
 
     # Логи бэкенда
     printf "  ${CYAN}👉 Писать логи бэкенда (on/off) [on]:${NC} "
-    read -r be_log < /dev/tty
+    tread -r be_log
     [ -z "$be_log" ] && be_log="on"
     case "$be_log" in
       on | off) ;;
@@ -160,7 +160,7 @@ add_route() {
   local scope=""
   if [ "${#STREAM_FRONTENDS[@]}" -gt 0 ]; then
     printf "  ${CYAN}👉 Фронтенд (имена: %s; Enter = все):${NC} " "$(frontend_names "${STREAM_FRONTENDS[@]}" 2>/dev/null | tr '\n' ' ')"
-    read -r scope < /dev/tty
+    tread -r scope
     if [ -n "$scope" ] && ! frontend_exists stream "$scope"; then
       log_error "❌ Нет такого stream-фронтенда (пункт 2 «Фронтенды» — список)"
       return
@@ -239,7 +239,7 @@ edit_route() {
   done
   printf "\n"
   printf "  ${CYAN}👉 Номер маршрута (0 - отмена):${NC} "
-  read -r num < /dev/tty
+  tread -r num
   { [ "$num" = "0" ] || [ -z "$num" ]; } && return
 
   if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#STREAM_ROUTES[@]}" ]; then
@@ -287,7 +287,7 @@ edit_route() {
     printf "  ${GREEN}0.${NC} Готово, применить\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r fchoice < /dev/tty
+    tread -r fchoice
 
     case "$fchoice" in
       1)
@@ -318,7 +318,7 @@ edit_route() {
           done
           printf "  ${GREEN}0.${NC} Новый адрес\n"
           printf "  ${CYAN}👉 Номер ящика (Enter = оставить):${NC} "
-          read -r be_num < /dev/tty
+          tread -r be_num
           [ -z "$be_num" ] && continue
           if ! [[ "$be_num" =~ ^[0-9]+$ ]] || [ "$be_num" -lt 0 ] || [ "$be_num" -gt "$bi" ]; then
             log_error "❌ Неверный номер"
@@ -401,7 +401,7 @@ edit_route() {
           sleep 1; continue
         fi
         printf "  ${CYAN}Фронтенды (имена: %s; Enter = оставить [%s], '-' = все):${NC} " "$(frontend_names "${STREAM_FRONTENDS[@]}" 2>/dev/null | tr '\n' ' ')" "${scope:-все}"
-        read -r scope_in < /dev/tty
+        tread -r scope_in
         if [ -n "$scope_in" ]; then
           if [ "$scope_in" = "-" ]; then
             scope=""
@@ -513,7 +513,7 @@ remove_route() {
   printf "\n"
 
   printf "  ${CYAN}👉 Номер маршрута для удаления (0 - отмена):${NC} "
-  read -r num < /dev/tty
+  tread -r num
   { [ "$num" = "0" ] || [ -z "$num" ]; } && return
 
   if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#idxs[@]}" ]; then
@@ -611,7 +611,7 @@ fe_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) fe_add || true ;;
@@ -631,15 +631,15 @@ fe_add() {
   load_sites
 
   printf "  ${CYAN}👉 Имя (латиница, например office):${NC} "
-  read -r fe_name < /dev/tty
+  tread -r fe_name
   [ -z "$fe_name" ] && { log_error "❌ Имя не может быть пустым"; return; }
 
   printf "  ${CYAN}👉 Bind host:порт (например, 10.0.0.1:8445):${NC} "
-  read -r fe_bind < /dev/tty
+  tread -r fe_bind
   [ -z "$fe_bind" ] && { log_error "❌ Bind не может быть пустым"; return; }
 
   printf "  ${CYAN}👉 Писать логи фронтенда (on/off) [on]:${NC} "
-  read -r fe_log < /dev/tty
+  tread -r fe_log
   [ -z "$fe_log" ] && fe_log="on"
 
   frontend_add stream "$fe_name" "$fe_bind" "$fe_log" || return
@@ -671,7 +671,7 @@ fe_edit() {
     printf "  ${CYAN}Фронтенды не заданы — сейчас работает bind %s.${NC}\n" "$cur_bind"
     printf "  ${CYAN}👉 Создать явный 'main' из него и править? [y/N]:${NC} "
     local mk_ans
-    read -r mk_ans < /dev/tty
+    tread -r mk_ans
     if [ "$mk_ans" != "y" ] && [ "$mk_ans" != "Y" ]; then
       log_info "Отмена"
       return
@@ -681,7 +681,7 @@ fe_edit() {
   fi
 
   printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  read -r fe_name < /dev/tty
+  tread -r fe_name
   { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
 
   local idx=-1 i
@@ -714,7 +714,7 @@ fe_edit() {
     printf "  ${GREEN}0.${NC} Готово, применить\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r fchoice < /dev/tty
+    tread -r fchoice
 
     case "$fchoice" in
       1)
@@ -784,7 +784,7 @@ fe_remove() {
   fi
 
   printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  read -r fe_name < /dev/tty
+  tread -r fe_name
   { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
 
   if ! frontend_exists stream "$fe_name"; then
@@ -837,7 +837,7 @@ be_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) be_add || true ;;
@@ -857,19 +857,19 @@ be_add() {
   load_sites
 
   printf "  ${CYAN}👉 Имя (латиница, например app):${NC} "
-  read -r be_name < /dev/tty
+  tread -r be_name
   [ -z "$be_name" ] && { log_error "❌ Имя не может быть пустым"; return; }
 
   printf "  ${CYAN}👉 Backend host:порт (например, 127.0.0.1:10443):${NC} "
-  read -r be_to < /dev/tty
+  tread -r be_to
   [ -z "$be_to" ] && { log_error "❌ Backend не может быть пустым"; return; }
 
   printf "  ${CYAN}👉 PROXY-протокол [off]:${NC} "
-  read -r be_proxy < /dev/tty
+  tread -r be_proxy
   [ -z "$be_proxy" ] && be_proxy="off"
 
   printf "  ${CYAN}👉 Писать логи (on/off) [on]:${NC} "
-  read -r be_log < /dev/tty
+  tread -r be_log
   [ -z "$be_log" ] && be_log="on"
 
   local rec="name=${be_name} to=${be_to} proxy=${be_proxy} log=${be_log}"
@@ -902,7 +902,7 @@ be_edit() {
   fi
 
   printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  read -r be_name < /dev/tty
+  tread -r be_name
   { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
 
   local idx=-1 i
@@ -939,7 +939,7 @@ be_edit() {
     printf "  ${GREEN}0.${NC} Готово, применить\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r fchoice < /dev/tty
+    tread -r fchoice
 
     case "$fchoice" in
       1)
@@ -1016,7 +1016,7 @@ be_remove() {
   fi
 
   printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  read -r be_name < /dev/tty
+  tread -r be_name
   { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
 
   if ! backend_exists stream "$be_name"; then

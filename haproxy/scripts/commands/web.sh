@@ -23,7 +23,7 @@ show_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) rt_menu || true ;;
@@ -49,7 +49,7 @@ rt_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) add_route || true ;;
@@ -70,7 +70,7 @@ add_route() {
 
   # Host
   printf "  ${CYAN}👉 Домен (например, example.com):${NC} "
-  read -r host < /dev/tty
+  tread -r host
   [ -z "$host" ] && { log_error "❌ Домен не может быть пустым"; return; }
   validate_domain "$host" || return
 
@@ -86,7 +86,7 @@ add_route() {
     done
     printf "  ${GREEN}0.${NC} Новый адрес\n"
     printf "  ${CYAN}👉 Номер ящика (0 = новый):${NC} "
-    read -r be_num < /dev/tty
+    tread -r be_num
     [ -z "$be_num" ] && be_num="0"
     if ! [[ "$be_num" =~ ^[0-9]+$ ]] || [ "$be_num" -gt "$bi" ]; then
       log_error "❌ Неверный номер"
@@ -101,7 +101,7 @@ add_route() {
   if [ -z "$use_ref" ]; then
     # Новый адрес (инлайн-ящик).
     printf "  ${CYAN}👉 Backend (порт или host:порт, например 8080):${NC} "
-    read -r to < /dev/tty
+    tread -r to
     [ -z "$to" ] && { log_error "❌ Backend не может быть пустым"; return; }
     [[ "$to" != *:* ]] && to="127.0.0.1:${to}"
     local _h="${to%:*}"
@@ -115,7 +115,7 @@ add_route() {
 
   # Path (опционально)
   printf "  ${CYAN}👉 Path-префикс (Enter = весь хост):${NC} "
-  read -r path < /dev/tty
+  tread -r path
   if [ -n "$path" ] && [[ "$path" != /* ]]; then
     log_error "❌ Path должен начинаться с '/'"
     return
@@ -124,7 +124,7 @@ add_route() {
   # Логи бэкенда — только для нового адреса (у ящика свои).
   if [ -z "$use_ref" ]; then
     printf "  ${CYAN}👉 Писать логи бэкенда (on/off) [on]:${NC} "
-    read -r be_log < /dev/tty
+    tread -r be_log
     [ -z "$be_log" ] && be_log="on"
     case "$be_log" in
       on | off) ;;
@@ -144,7 +144,7 @@ add_route() {
   local scope=""
   if [ "${#WEB_FRONTENDS[@]}" -gt 0 ]; then
     printf "  ${CYAN}👉 Фронтенд (имена: %s; Enter = все):${NC} " "$(frontend_names "${WEB_FRONTENDS[@]}" 2>/dev/null | tr '\n' ' ')"
-    read -r scope < /dev/tty
+    tread -r scope
     if [ -n "$scope" ]; then
       if ! frontend_exists web "$scope"; then
         log_error "❌ Нет такого web-фронтенда (пункт 2 «Фронтенды» — список)"
@@ -194,7 +194,7 @@ add_route() {
   # Сертификат для нового хоста.
   printf "\n"
   printf "  ${CYAN}👉 Выпустить сертификат для ${host}? [Y/n]:${NC} "
-  read -r issue_cert < /dev/tty
+  tread -r issue_cert
   if [ -z "$issue_cert" ] || [ "$issue_cert" = "Y" ] || [ "$issue_cert" = "y" ]; then
     bash "${SCRIPT_DIR}/cert.sh" --issue "$host" < /dev/tty || true
   fi
@@ -224,7 +224,7 @@ edit_route() {
   done
   printf "\n"
   printf "  ${CYAN}👉 Номер маршрута (0 - отмена):${NC} "
-  read -r num < /dev/tty
+  tread -r num
   { [ "$num" = "0" ] || [ -z "$num" ]; } && return
 
   if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#WEB_ROUTES[@]}" ]; then
@@ -266,7 +266,7 @@ edit_route() {
     printf "  ${GREEN}0.${NC} Готово, применить\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r fchoice < /dev/tty
+    tread -r fchoice
 
     case "$fchoice" in
       1)
@@ -287,7 +287,7 @@ edit_route() {
             printf "  ${GREEN}%d.${NC} %s → %s%s\n" "$bi" "$B_NAME" "$B_TO" "$([ "$B_LOG" = "off" ] && printf ", без логов")"
           done
           printf "  ${CYAN}👉 Номер ящика (Enter = оставить):${NC} "
-          read -r be_num < /dev/tty
+          tread -r be_num
           if [ -n "$be_num" ]; then
             if ! [[ "$be_num" =~ ^[0-9]+$ ]] || [ "$be_num" -lt 0 ] || [ "$be_num" -gt "$bi" ]; then
               log_error "❌ Неверный номер"
@@ -350,7 +350,7 @@ edit_route() {
           sleep 1; continue
         fi
         printf "  ${CYAN}Фронтенды (имена: %s; Enter = оставить [%s], '-' = все):${NC} " "$(frontend_names "${WEB_FRONTENDS[@]}" 2>/dev/null | tr '\n' ' ')" "${scope:-все}"
-        read -r scope_in < /dev/tty
+        tread -r scope_in
         if [ -n "$scope_in" ]; then
           if [ "$scope_in" = "-" ]; then
             scope=""
@@ -446,7 +446,7 @@ remove_route() {
   printf "\n"
 
   printf "  ${CYAN}👉 Номер маршрута для удаления (0 - отмена):${NC} "
-  read -r num < /dev/tty
+  tread -r num
   { [ "$num" = "0" ] || [ -z "$num" ]; } && return
 
   if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#WEB_ROUTES[@]}" ]; then
@@ -482,7 +482,7 @@ remove_route() {
 
   printf "\n"
   printf "  ${CYAN}👉 Удалить сертификат для ${old_host}? [y/N]:${NC} "
-  read -r del_cert < /dev/tty
+  tread -r del_cert
   if [ "$del_cert" = "y" ] || [ "$del_cert" = "Y" ]; then
     bash "${SCRIPT_DIR}/cert.sh" --remove "$old_host" < /dev/tty || true
   fi
@@ -548,7 +548,7 @@ fe_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) fe_add || true ;;
@@ -568,15 +568,15 @@ fe_add() {
   load_sites
 
   printf "  ${CYAN}👉 Имя (латиница, например internal):${NC} "
-  read -r fe_name < /dev/tty
+  tread -r fe_name
   [ -z "$fe_name" ] && { log_error "❌ Имя не может быть пустым"; return; }
 
   printf "  ${CYAN}👉 Bind host:порт (например, 127.0.0.1:9443):${NC} "
-  read -r fe_bind < /dev/tty
+  tread -r fe_bind
   [ -z "$fe_bind" ] && { log_error "❌ Bind не может быть пустым"; return; }
 
   printf "  ${CYAN}👉 Писать логи фронтенда (on/off) [on]:${NC} "
-  read -r fe_log < /dev/tty
+  tread -r fe_log
   [ -z "$fe_log" ] && fe_log="on"
 
   frontend_add web "$fe_name" "$fe_bind" "$fe_log" || return
@@ -608,7 +608,7 @@ fe_edit() {
     printf "  ${CYAN}Фронтенды не заданы — сейчас работает bind %s.${NC}\n" "$cur_bind"
     printf "  ${CYAN}👉 Создать явный 'main' из него и править? [y/N]:${NC} "
     local mk_ans
-    read -r mk_ans < /dev/tty
+    tread -r mk_ans
     if [ "$mk_ans" != "y" ] && [ "$mk_ans" != "Y" ]; then
       log_info "Отмена"
       return
@@ -618,7 +618,7 @@ fe_edit() {
   fi
 
   printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  read -r fe_name < /dev/tty
+  tread -r fe_name
   { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
 
   local idx=-1 i
@@ -651,7 +651,7 @@ fe_edit() {
     printf "  ${GREEN}0.${NC} Готово, применить\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r fchoice < /dev/tty
+    tread -r fchoice
 
     case "$fchoice" in
       1)
@@ -721,7 +721,7 @@ fe_remove() {
   fi
 
   printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  read -r fe_name < /dev/tty
+  tread -r fe_name
   { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
 
   if ! frontend_exists web "$fe_name"; then
@@ -774,7 +774,7 @@ be_menu() {
     printf "  ${RED}0.${NC} ⬅️  Назад\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r choice < /dev/tty
+    tread -r choice
 
     case "$choice" in
       1) be_add || true ;;
@@ -794,16 +794,16 @@ be_add() {
   load_sites
 
   printf "  ${CYAN}👉 Имя (латиница, например app):${NC} "
-  read -r be_name < /dev/tty
+  tread -r be_name
   [ -z "$be_name" ] && { log_error "❌ Имя не может быть пустым"; return; }
 
   printf "  ${CYAN}👉 Backend (порт или host:порт, например 8080):${NC} "
-  read -r be_to < /dev/tty
+  tread -r be_to
   [ -z "$be_to" ] && { log_error "❌ Backend не может быть пустым"; return; }
   [[ "$be_to" != *:* ]] && be_to="127.0.0.1:${be_to}"
 
   printf "  ${CYAN}👉 Писать логи (on/off) [on]:${NC} "
-  read -r be_log < /dev/tty
+  tread -r be_log
   [ -z "$be_log" ] && be_log="on"
 
   local rec="name=${be_name} to=${be_to} log=${be_log}"
@@ -836,7 +836,7 @@ be_edit() {
   fi
 
   printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  read -r be_name < /dev/tty
+  tread -r be_name
   { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
 
   local idx=-1 i
@@ -871,7 +871,7 @@ be_edit() {
     printf "  ${GREEN}0.${NC} Готово, применить\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r fchoice < /dev/tty
+    tread -r fchoice
 
     case "$fchoice" in
       1)
@@ -944,7 +944,7 @@ be_remove() {
   fi
 
   printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  read -r be_name < /dev/tty
+  tread -r be_name
   { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
 
   if ! backend_exists web "$be_name"; then
