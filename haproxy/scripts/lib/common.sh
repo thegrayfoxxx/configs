@@ -1471,6 +1471,79 @@ validate_backend_refs() {
   done
 }
 
+# shadow_check_stream — дубли SNI в одной области с разным бэкендом = ошибка.
+# Использует массивы v_sni/v_to/v_proxy/v_use/v_fe из generate_stream_v3.
+# sni=default скипается (резолвится отдельно), sni-списки раскрываются подоменно.
+# Тот же SNI на тот же бэкенд — варнинг (мертвый дубль безвреден, но пахнет копипастой).
+shadow_check_stream() {
+  local -a _keys=() _bes=()
+  local i _di _j _d _key _be _found
+  local -a _doms=()
+  for ((i = 0; i < ${#v_sni[@]}; i++)); do
+    if [ -n "${v_use[i]}" ]; then
+      _be="use:${v_use[i]}"
+    else
+      _be="to:${v_to[i]}|proxy:${v_proxy[i]}"
+    fi
+    _doms=()
+    read -ra _doms <<< "${v_sni[i]}" || true
+    for ((_di = 0; _di < ${#_doms[@]}; _di++)); do
+      _d="${_doms[$_di]}"
+      [ "$_d" = "default" ] && continue
+      _key="${_d}|${v_fe[i]}"
+      _found=false
+      for ((_j = 0; _j < ${#_keys[@]}; _j++)); do
+        if [ "${_keys[$_j]}" = "$_key" ]; then
+          _found=true
+          if [ "${_bes[$_j]}" != "$_be" ]; then
+            log_error "  ❌ SNI '${_d}' (область '${v_fe[i]:-все}') ведет в разные бэкенды — второе правило мертвое" >&2
+            return 1
+          else
+            log_warn "  ⚠  SNI '${_d}' (область '${v_fe[i]:-все}') дублируется на тот же бэкенд"
+          fi
+        fi
+      done
+      if [ "$_found" = false ]; then
+        _keys+=("$_key")
+        _bes+=("$_be")
+      fi
+    done
+  done
+}
+
+# shadow_check_web — дубли host+path в одной области с разным бэкендом = ошибка.
+# Массивы w_domains/w_ports/w_paths + опционально w_use/w_fe (нет массивов = инлайн без области).
+shadow_check_web() {
+  local -a _keys=() _bes=()
+  local e _j _key _be _found _fe _use
+  for ((e = 0; e < ${#w_domains[@]}; e++)); do
+    _fe="${w_fe[e]:-}"
+    _use="${w_use[e]:-}"
+    if [ -n "$_use" ]; then
+      _be="use:${_use}"
+    else
+      _be="to:${w_domains[e]}:${w_ports[e]}"
+    fi
+    _key="${w_domains[e]}|${w_paths[e]}|${_fe}"
+    _found=false
+    for ((_j = 0; _j < ${#_keys[@]}; _j++)); do
+      if [ "${_keys[$_j]}" = "$_key" ]; then
+        _found=true
+        if [ "${_bes[$_j]}" != "$_be" ]; then
+          log_error "  ❌ Дублирующийся маршрут '${w_domains[e]}${w_paths[e]}' (область '${_fe:-все}') в разные бэкенды — второй мертвый" >&2
+          return 1
+        else
+          log_warn "  ⚠  Маршрут '${w_domains[e]}${w_paths[e]}' (область '${_fe:-все}') дублируется"
+        fi
+      fi
+    done
+    if [ "$_found" = false ]; then
+      _keys+=("$_key")
+      _bes+=("$_be")
+    fi
+  done
+}
+
 # validate_frontends <какой: stream|web> — уникальность имен + валидность записей.
 validate_frontends() {
   local kind="$1"
@@ -1818,6 +1891,9 @@ generate_stream_v3() {
 
   # Ссылки use= резолвятся в именованные ящики (битые — fail, висячие — warn).
   validate_backend_refs stream || return 1
+
+  # Дубли SNI в одной области с разным бэкендом — fail (второе правило мертвое).
+  shadow_check_stream || return 1
 
   # Имена бэкендов уникальны (иначе секции задвоятся и haproxy не стартует).
   # Именованные ящики + инлайн-имена + инлайн-defaults не должны пересекаться
@@ -2227,6 +2303,9 @@ EOF
     w_use+=("$W3_USE")
   done
 
+  # Дубли host+path в одной области с разным бэкендом — fail.
+  shadow_check_web || return 1
+
   web_tag_for() {
     local dom="$1" port="$2" idx="$3"
     local count=0
@@ -2521,6 +2600,9 @@ EOF
     w_use+=("$W3_USE")
   done
 
+  # Дубли host+path с разным бэкендом — fail (второе правило мертвое).
+  shadow_check_web || return 1
+
   local -a order=()
   local d e seen
   for ((e = 0; e < ${#w_domains[@]}; e++)); do
@@ -2745,6 +2827,35 @@ EOF
     r_proxy+=("$(opt_value proxy off ${ENTRY_OPTS[@]+"${ENTRY_OPTS[@]}"})")
   done
 
+  # Дубли доменов с разным портом — fail (первое правило затеняет остальные).
+  {
+    local -a _rd=() _rk=()
+    local _ri _rdi _rdom _rkey _rj _rfound
+    local -a _rdoms=()
+    for ((_ri = 0; _ri < ${#r_domains[@]}; _ri++)); do
+      _rdoms=()
+      read -ra _rdoms <<< "${r_domains[$_ri]}" || true
+      for ((_rdi = 0; _rdi < ${#_rdoms[@]}; _rdi++)); do
+        _rdom="${_rdoms[$_rdi]}"
+        _rkey="$_rdom"
+        _rfound=false
+        for ((_rj = 0; _rj < ${#_rk[@]}; _rj++)); do
+          if [ "${_rk[$_rj]}" = "$_rkey" ]; then
+            _rfound=true
+            if [ "${_rd[$_rj]}" != "${r_ports[$_ri]}" ]; then
+              log_error "  ❌ Домен '${_rdom}' ведет в разные порты — второе правило мертвое" >&2
+              return 1
+            fi
+          fi
+        done
+        if [ "$_rfound" = false ]; then
+          _rk+=("$_rkey")
+          _rd+=("${r_ports[$_ri]}")
+        fi
+      done
+    done
+  }
+
   local total=${#r_domains[@]}
   local i acl bk proxy_line
   if [ "$total" -eq 1 ] && [ "${r_proxy[0]}" = "off" ]; then
@@ -2913,6 +3024,9 @@ EOF
     w_ports+=("$ENTRY_PORT")
     w_paths+=("$epath")
   done
+
+  # Дубли домен+path с разным портом — fail (второе правило мертвое).
+  shadow_check_web || return 1
 
   # Порядок доменов — по первому появлению; path-правила внутри домена — первыми.
   local -a order=()
