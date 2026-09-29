@@ -1,13 +1,24 @@
 # multi-site-l7 — пачка сайтов без reality
 
-Самый простой сценарий: N обычных сайтов за TLS-терминацией haproxy-web,
-стрим на `:443` пропускает всё в web (SNI-фильтра нет — reality-список пуст),
-неизвестные Host — в blackhole.
+Самый простой сценарий: N обычных сайтов за TLS-терминацией haproxy-web.
+В `STREAM_ROUTES` — только явный `sni=default → web`: SNI-фильтра нет,
+вся `:443` идёт в web. Неизвестные Host — в blackhole.
+
+## Схема
+
+```mermaid
+flowchart LR
+    CLIENT["Клиент:443"] --> STREAM["stream/ft_https<br/>без SNI-фильтра"]
+    STREAM -->|sni=default| WEB["web/ft_https_terminated<br/>:8443"]
+    WEB -->|Host: site1| B1["bk_site_site1_com<br/>127.0.0.1:8080"]
+    WEB -->|Host: site2| B2["bk_site_site2_com<br/>127.0.0.1:9090"]
+    WEB -->|чужой Host| BH["bk_blackhole<br/>403 / tarpit"]
+```
 
 ## Что получишь
 
-* `WEB_SITES`: по записи на сайт (домен:порт бэкенда).
-* `REALITY_SITES`: пусто — вся `:443` идёт в web.
+* `WEB_ROUTES`: по записи на сайт (`host=домен to=127.0.0.1:порт`).
+* `STREAM_ROUTES`: только явный `sni=default → web` — вся `:443` идёт в web.
 * `GLOBAL_OPTS`: дефолтные таймауты/stream-bind; `blackhole` на выбор:
   `deny` (быстрый 403) или `tarpit` (держать сканера 10s).
 

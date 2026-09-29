@@ -1,4 +1,4 @@
-# Формат: VAR|промпт|дефолт|валидатор (any|nonempty|domain|port|email, list:domainport)
+# Формат: VAR|промпт|дефолт|валидатор (any|nonempty|domain|port|email|bind|snis|hostport|path|oneof:a,b, list:domainport|list:hostport)
 ACME_EMAIL|Email для ACME|mail@example.com|email
-BLACKHOLE|Режим blackhole для чужих Host/SNI (deny = 403 сразу, tarpit = держать сканера на крюке)|deny|any
-SITES_LINES|Сайты: домен и порт бэкенда||list:domainport
+BLACKHOLE|Режим blackhole для чужих Host/SNI (deny = 403 сразу, tarpit = держать сканера на крюке)|deny|oneof:deny,tarpit
+SITES_LINES|Сайты: домен и бэкенд||list:hostport

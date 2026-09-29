@@ -4,12 +4,26 @@
 (`/data/*`, чанки packet-up) едут в Xray, всё остальное с того же Host —
 в сайт-заглушку. Плюс отдельная reality-ветка для Vision-клиентов.
 
+## Схема
+
+```mermaid
+flowchart LR
+    CDN["CDN / клиент:443"] --> STREAM["stream/ft_https<br/>SNI-инспекция"]
+    STREAM -->|SNI = vision-домены| XV["bk_xray-vision<br/>Xray VLESS+Vision"]
+    STREAM -->|sni=default| WEB["web/ft_https_terminated<br/>127.0.0.1:8443<br/>+ PROXY v2"]
+    WEB -->|Host = XHTTP-домен<br/>path /data/*| XHTTP["bk_xhttp<br/>Xray XHTTP<br/>+ forwardfor"]
+    WEB -->|Host = XHTTP-домен<br/>остальное| STUB["bk_stub<br/>заглушка"]
+    WEB -->|чужой Host| BH["bk_blackhole<br/>403"]
+```
+
 ## Что получишь
 
-* `WEB_SITES`: две записи на один домен — path-правило строго выше
+* `WEB_BACKENDS` / `STREAM_BACKENDS`: ящики поименно (`xhttp`, `stub`,
+  `xray-vision`) — маршруты ссылаются через `use=`.
+* `WEB_ROUTES`: две записи на один домен — path-правило строго выше
   общего (генератор гарантирует порядок).
-* `forwardfor_backends`: `option forwardfor` точечно на XHTTP-бэкенде
-  (тег вычисляется визардом сам — руками не считать).
+* `forwardfor_backends`: `option forwardfor` точечно на ящике `bk_xhttp`
+  (имя задано в шаблоне — руками ничего не считать).
 * `GLOBAL_OPTS`: таймауты `1h` + `tunnel`, loopback-bind web, PROXY-пара
   stream→web, blackhole `deny`.
 

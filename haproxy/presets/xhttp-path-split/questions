@@ -1,10 +1,9 @@
-# Формат: VAR|промпт|дефолт|валидатор (any|nonempty|domain|port|email, list:domainport)
-# derive:VAR=tag DOMVAR PORTVAR — вычислить тег бэкенда site_домен_порт
+# Формат: VAR|промпт|дефолт|валидатор (any|nonempty|domain|port|email|bind|snis|hostport|path|oneof:a,b, list:domainport|list:hostport)
+# Ящики именованы явно (forwardfor ссылается на bk_xhttp напрямую), derive не нужен.
 ACME_EMAIL|Email для ACME|mail@example.com|email
 XHTTP_DOMAIN|Домен XHTTP (он же SNI/Host, обычно за CDN)|x.cdn.example.com|domain
 XHTTP_PORT|Порт бэкенда Xray XHTTP (plain HTTP, security:none)|11443|port
-XHTTP_PATH|Path API XHTTP (должен совпадать с path в Xray)|/data/|any
+XHTTP_PATH|Path API XHTTP (должен совпадать с path в Xray)|/data/|path
 STUB_PORT|Порт заглушки (статика для браузеров)|8080|port
-REALITY_DOMAINS|Домены reality-ветки через пробел (vision-клиенты)|vpn.example.com|nonempty
+REALITY_DOMAINS|Домены reality-ветки через пробел (vision-клиенты)|vpn.example.com|snis
 XRAY_PORT|Порт xray reality-inbound|10443|port
-derive:TAG=tag XHTTP_DOMAIN XHTTP_PORT
