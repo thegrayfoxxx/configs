@@ -703,11 +703,20 @@ rollback_backup() {
 
 # --- ВАЛИДАЦИЯ КОНФИГОВ (волна 1) ---
 # Проверяет haproxy-конфиг. Возврат: 0 ок, 1 битый конфиг / нечем проверить.
-# Fail-closed: непроверенный конфиг НЕ пишется в прод. Порядок: локальный бинарник,
-# затем docker exec в соответствующий запущенный контейнер (та же версия, что в проде),
-# иначе ошибка. Обход только явный: HAPROXY_NO_VALIDATE=1 (тесты/CI без haproxy и docker).
+# Fail-closed: непроверенный конфиг НЕ пишется в прод — битый cfg + restart: always
+# = crash-loop :443, а не «старый конфиг продолжает работать».
+# Проверяется только СИНТАКСИС тем же билдом, что в проде. Запущенные сервисы
+# НЕ требуются: порядок — локальный бинарник, exec в запущенный контейнер,
+# одноразовый `compose run` из образа (сервисы могут стоять). Обход только явный:
+# HAPROXY_NO_VALIDATE=1 (тесты/CI).
 validate_cfg() {
   local file="$1" want="${2:-}"
+  if [ -z "$want" ]; then
+    case "$file" in
+      */stream/*) want="haproxy-stream" ;;
+      */web/*) want="haproxy-web" ;;
+    esac
+  fi
   if command -v haproxy >/dev/null 2>&1; then
     if haproxy -c -V -f "$file" >/dev/null 2>&1; then
       return 0
@@ -716,13 +725,23 @@ validate_cfg() {
     haproxy -c -V -f "$file" 2>&1 | head -20 || true
     return 1
   fi
-  # Бинарника нет (типичный хост: haproxy только в контейнерах) — пробуем docker.
+  # Бинарника нет — пробуем docker. Сервисы при этом крутиться НЕ обязаны.
   local _have_docker=false _daemon_ok=false
   if command -v docker >/dev/null 2>&1; then
     _have_docker=true
     docker info >/dev/null 2>&1 && _daemon_ok=true
   fi
-  if [ "$_daemon_ok" = true ]; then
+  if [ "$_daemon_ok" != true ]; then
+    if [ "$_have_docker" = true ]; then
+      log_error "  ❌ Нечем проверить ${file}: docker стоит, но демон недоступен (не запущен Docker?)."
+    else
+      log_error "  ❌ Нечем проверить ${file}: нет ни бинарника haproxy, ни docker."
+      log_error "     Поставь haproxy локально либо docker с образом haproxy (compose pull)."
+    fi
+    _validate_bypass "$file" && return 0
+    return 1
+  fi
+  # Быстрый путь: запущенный контейнер (та же версия, что в проде).
     if [ -z "$want" ]; then
       case "$file" in
         */stream/*) want="haproxy-stream" ;;
@@ -752,17 +771,41 @@ validate_cfg() {
       docker exec "$cname" rm -f "$remote" >/dev/null 2>&1 || true
       return 1
     fi
-    # Демон есть, контейнеров haproxy-* нет — говорим что делать, а не просто фейлим.
-    log_error "  ❌ Нечем проверить ${file}: docker-демон на месте, но haproxy-контейнеры не запущены."
-    log_error "     Подними их (раздел 5 → up, профили stream/web) либо генерируй там, где они крутятся."
-    log_error "     Локально доступен предпросмотр без валидации (раздел 6 → перегенерировать показывает diff)."
-  elif [ "$_have_docker" = true ]; then
-    log_error "  ❌ Нечем проверить ${file}: docker стоит, но демон недоступен (не запущен Docker?)."
-    log_error "     Запусти демон либо генерируй там, где крутятся haproxy-контейнеры."
-  else
-    log_error "  ❌ Нечем проверить ${file}: нет ни бинарника haproxy, ни docker."
-    log_error "     Поставь haproxy локально либо генерируй там, где крутятся haproxy-контейнеры."
-  fi
+    # Демон есть, запущенных haproxy-* нет — одноразовый compose run из образа
+    # (сервисы могут стоять; ничего навсегда не запускает, --rm убирает за собой).
+    if [ -f "${HAPROXY_DIR}/compose.yml" ] && [ -n "$want" ]; then
+      # -v требует абсолютный хост-путь.
+      local abs="$file"
+      if [[ "$abs" != /* ]]; then
+        if command -v realpath >/dev/null 2>&1; then
+          abs="$(realpath -m "$abs" 2>/dev/null || printf "%s" "$abs")"
+        else
+          abs="$(pwd)/${abs#./}"
+        fi
+      fi
+      local out rc=0
+      out=$(cd "$HAPROXY_DIR" && docker compose -f compose.yml run --rm --no-deps -T \
+        -v "${abs}:/tmp/haproxy-validate.cfg:ro" \
+        --entrypoint haproxy "$want" -c -V -f /tmp/haproxy-validate.cfg 2>&1) || rc=$?
+      if [ "$rc" -eq 0 ]; then
+        return 0
+      fi
+      if echo "$out" | grep -qiE 'no such image|not found|pull access|unable to find image'; then
+        log_error "  ❌ Нечем проверить ${file}: нет образа haproxy (подтяни: docker compose pull)."
+      else
+        log_error "  ❌ Битый конфиг: ${file} (проверено одноразовым контейнером ${want})"
+        printf "%s\n" "$out" | head -20 || true
+      fi
+      return 1
+    fi
+    log_error "  ❌ Нечем проверить ${file}: демон на месте, но ни запущенных haproxy-контейнеров, ни compose.yml для одноразовой проверки."
+    _validate_bypass "$file" && return 0
+    return 1
+}
+
+# _validate_bypass <файл> — явный обход fail-closed. Возврат 0 если разрешен.
+_validate_bypass() {
+  local file="$1"
   if [ -n "${HAPROXY_NO_VALIDATE:-}" ]; then
     log_warn "  ⚠  HAPROXY_NO_VALIDATE=1 — пропускаю валидацию ${file} на свой риск"
     return 0
