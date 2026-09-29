@@ -21,7 +21,7 @@ mktmp() {
   export HAPROXY_DIR_OVERRIDE="$TMP"
   # shellcheck disable=SC1091
   source "$PROJ/scripts/lib/common.sh"
-  generate_configs > /tmp/golden6-web-log.txt 2>&1 || { printf "  FAIL: generate web-direct\n"; cat /tmp/golden6-web-log.txt; fail=1; }
+  generate_configs > ${TEST_TMP:-/tmp}/golden6-web-log.txt 2>&1 || { printf "  FAIL: generate web-direct\n"; cat ${TEST_TMP:-/tmp}/golden6-web-log.txt; fail=1; }
   diff -u "$TDIR/fixtures/expected6-web-direct-stream.cfg" "$TMP/stream/haproxy.cfg" \
     && printf "  ok: golden6 web-direct stream совпал\n" \
     || { printf "  FAIL: golden6 web-direct stream\n"; fail=1; }
@@ -41,13 +41,76 @@ mktmp() {
   export HAPROXY_DIR_OVERRIDE="$TMP"
   # shellcheck disable=SC1091
   source "$PROJ/scripts/lib/common.sh"
-  generate_configs > /tmp/golden6-sv-log.txt 2>&1 || { printf "  FAIL: generate selfsteal\n"; cat /tmp/golden6-sv-log.txt; fail=1; }
+  generate_configs > ${TEST_TMP:-/tmp}/golden6-sv-log.txt 2>&1 || { printf "  FAIL: generate selfsteal\n"; cat ${TEST_TMP:-/tmp}/golden6-sv-log.txt; fail=1; }
   diff -u "$TDIR/fixtures/expected6-stream-selfsteal-stream.cfg" "$TMP/stream/haproxy.cfg" \
     && printf "  ok: golden6 selfsteal stream совпал\n" \
     || { printf "  FAIL: golden6 selfsteal stream\n"; fail=1; }
   diff -u "$TDIR/fixtures/expected6-stream-selfsteal-web.cfg" "$TMP/web/haproxy.cfg" \
     && printf "  ok: golden6 selfsteal web совпал\n" \
     || { printf "  FAIL: golden6 selfsteal web\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+  unset HAPROXY_DIR_OVERRIDE
+}
+
+# --- golden xray-direct (web-таргет с accept-proxy при xver) ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  cp "$TDIR/fixtures/sites6-xray-direct.conf" "$TMP/sites.conf"
+  export HAPROXY_DIR_OVERRIDE="$TMP"
+  # shellcheck disable=SC1091
+  source "$PROJ/scripts/lib/common.sh"
+  generate_configs > ${TEST_TMP:-/tmp}/golden6-xray-log.txt 2>&1 || { printf "  FAIL: generate xray-direct\n"; cat ${TEST_TMP:-/tmp}/golden6-xray-log.txt; fail=1; }
+  diff -u "$TDIR/fixtures/expected6-xray-direct-stream.cfg" "$TMP/stream/haproxy.cfg" \
+    && printf "  ok: golden6 xray-direct stream совпал\n" \
+    || { printf "  FAIL: golden6 xray-direct stream\n"; fail=1; }
+  diff -u "$TDIR/fixtures/expected6-xray-direct-web.cfg" "$TMP/web/haproxy.cfg" \
+    && grep -q 'accept-proxy' "$TMP/web/haproxy.cfg" \
+    && printf "  ok: golden6 xray-direct web совпал (accept-proxy)\n" \
+    || { printf "  FAIL: golden6 xray-direct web\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+  unset HAPROXY_DIR_OVERRIDE
+}
+
+# --- golden web-direct xhttp-split (forwardfor, без стрима) ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  cp "$TDIR/fixtures/sites6-web-xhttp.conf" "$TMP/sites.conf"
+  export HAPROXY_DIR_OVERRIDE="$TMP"
+  # shellcheck disable=SC1091
+  source "$PROJ/scripts/lib/common.sh"
+  generate_configs > ${TEST_TMP:-/tmp}/golden6-webxhttp-log.txt 2>&1 || { printf "  FAIL: generate web-xhttp\n"; cat ${TEST_TMP:-/tmp}/golden6-webxhttp-log.txt; fail=1; }
+  diff -u "$TDIR/fixtures/expected6-web-xhttp-stream.cfg" "$TMP/stream/haproxy.cfg" \
+    && printf "  ok: golden6 web-xhttp stream совпал\n" \
+    || { printf "  FAIL: golden6 web-xhttp stream\n"; fail=1; }
+  diff -u "$TDIR/fixtures/expected6-web-xhttp-web.cfg" "$TMP/web/haproxy.cfg" \
+    && grep -q 'option forwardfor' "$TMP/web/haproxy.cfg" \
+    && ! grep -q 'accept-proxy' "$TMP/web/haproxy.cfg" \
+    && printf "  ok: golden6 web-xhttp web совпал (forwardfor, без proxy)\n" \
+    || { printf "  FAIL: golden6 web-xhttp web\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+  unset HAPROXY_DIR_OVERRIDE
+}
+
+# --- golden stream-vision sites (vision отдельно, web список) ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  cp "$TDIR/fixtures/sites6-stream-sites.conf" "$TMP/sites.conf"
+  export HAPROXY_DIR_OVERRIDE="$TMP"
+  # shellcheck disable=SC1091
+  source "$PROJ/scripts/lib/common.sh"
+  generate_configs > ${TEST_TMP:-/tmp}/golden6-svsites-log.txt 2>&1 || { printf "  FAIL: generate stream-sites\n"; cat ${TEST_TMP:-/tmp}/golden6-svsites-log.txt; fail=1; }
+  diff -u "$TDIR/fixtures/expected6-stream-sites-stream.cfg" "$TMP/stream/haproxy.cfg" \
+    && printf "  ok: golden6 stream-sites stream совпал\n" \
+    || { printf "  FAIL: golden6 stream-sites stream\n"; fail=1; }
+  diff -u "$TDIR/fixtures/expected6-stream-sites-web.cfg" "$TMP/web/haproxy.cfg" \
+    && printf "  ok: golden6 stream-sites web совпал\n" \
+    || { printf "  FAIL: golden6 stream-sites web\n"; fail=1; }
   trap - EXIT
   rm -rf "$TMP"
   unset HAPROXY_DIR_OVERRIDE

@@ -52,7 +52,7 @@ echo "$out" | grep -qi 'reality_sites\|web_sites=(' \
 printf "%s\n" "$out" > "$TMP/sites.conf"
 # shellcheck disable=SC1091
 source "$PROJ/scripts/lib/common.sh"
-generate_configs > /tmp/migrate-e2e-log.txt 2>&1 || { printf "  FAIL: generate после миграции\n"; cat /tmp/migrate-e2e-log.txt; fail=1; }
+generate_configs > ${TEST_TMP:-/tmp}/migrate-e2e-log.txt 2>&1 || { printf "  FAIL: generate после миграции\n"; cat ${TEST_TMP:-/tmp}/migrate-e2e-log.txt; fail=1; }
 grep -q 'req.ssl_sni -i www.google.com google.com' "$TMP/stream/haproxy.cfg" \
   && grep -q 'server sni-1 127.0.0.1:10443' "$TMP/stream/haproxy.cfg" \
   && printf "  ok: e2e stream сохранил семантику v1\n" \

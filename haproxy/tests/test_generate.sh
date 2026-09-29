@@ -26,7 +26,7 @@ check() { # check <описание> <команда...>
 }
 
 # Заглушаем интерактив/внешнее: generate_configs не должен ничего спрашивать
-generate_configs > /tmp/golden-test-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat /tmp/golden-test-log.txt; exit 1; }
+generate_configs > ${TEST_TMP:-/tmp}/golden-test-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat ${TEST_TMP:-/tmp}/golden-test-log.txt; exit 1; }
 
 diff -u "$TDIR/fixtures/expected-stream.cfg" "$TMP/stream/haproxy.cfg" \
   && printf "  ok: stream.cfg совпал с эталоном\n" \
@@ -38,7 +38,7 @@ diff -u "$TDIR/fixtures/expected-web.cfg" "$TMP/web/haproxy.cfg" \
 
 # Custom-вставка должна подклеиться
 printf '    # test-marker-123\n' > "$TMP/custom/web-frontend-99-test.cfg"
-generate_configs > /tmp/golden-test-log.txt 2>&1
+generate_configs > ${TEST_TMP:-/tmp}/golden-test-log.txt 2>&1
 grep -q 'test-marker-123' "$TMP/web/haproxy.cfg" \
   && printf "  ok: custom-вставка подклеилась\n" \
   || { printf "  FAIL: custom-вставка потерялась\n"; fail=1; }

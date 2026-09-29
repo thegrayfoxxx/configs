@@ -15,7 +15,7 @@ export HAPROXY_DIR_OVERRIDE="$TMP"
 source "$TDIR/../scripts/lib/common.sh"
 
 fail=0
-generate_configs > /tmp/golden-v3-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat /tmp/golden-v3-log.txt; exit 1; }
+generate_configs > ${TEST_TMP:-/tmp}/golden-v3-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat ${TEST_TMP:-/tmp}/golden-v3-log.txt; exit 1; }
 
 diff -u "$TDIR/fixtures/expected3v-stream.cfg" "$TMP/stream/haproxy.cfg" \
   && printf "  ok: v3 stream.cfg совпал с эталоном\n" \
@@ -50,8 +50,8 @@ gen_line=$(grep -n 'use_backend bk_site_x_example_com_8080' "$TMP/web/haproxy.cf
   || { printf "  FAIL: порядок path-правил\n"; fail=1; }
 
 # --- Fail-closed: битые v3-записи роняют генерацию, живые файлы не тронуты ---
-cp "$TMP/stream/haproxy.cfg" /tmp/golden-v3-stream-live.cfg
-cp "$TMP/web/haproxy.cfg" /tmp/golden-v3-web-live.cfg
+cp "$TMP/stream/haproxy.cfg" ${TEST_TMP:-/tmp}/golden-v3-stream-live.cfg
+cp "$TMP/web/haproxy.cfg" ${TEST_TMP:-/tmp}/golden-v3-web-live.cfg
 
 # 1. Нет sni=default.
 STREAM_ROUTES=('sni=a.com to=127.0.0.1:10443 proxy=off name=sni-1')
@@ -144,8 +144,8 @@ else
 fi
 
 # Живые файлы не тронуты всеми fail-кейсами выше (генерация пишет через tmp+mv).
-diff -q /tmp/golden-v3-stream-live.cfg "$TMP/stream/haproxy.cfg" >/dev/null \
-  && diff -q /tmp/golden-v3-web-live.cfg "$TMP/web/haproxy.cfg" >/dev/null \
+diff -q ${TEST_TMP:-/tmp}/golden-v3-stream-live.cfg "$TMP/stream/haproxy.cfg" >/dev/null \
+  && diff -q ${TEST_TMP:-/tmp}/golden-v3-web-live.cfg "$TMP/web/haproxy.cfg" >/dev/null \
   && printf "  ok: живые файлы не тронуты fail-кейсами\n" \
   || { printf "  FAIL: живые файлы изменились\n"; fail=1; }
 

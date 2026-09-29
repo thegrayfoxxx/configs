@@ -15,7 +15,7 @@ export HAPROXY_DIR_OVERRIDE="$TMP"
 source "$TDIR/../scripts/lib/common.sh"
 
 fail=0
-generate_configs > /tmp/golden-4fe-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat /tmp/golden-4fe-log.txt; exit 1; }
+generate_configs > ${TEST_TMP:-/tmp}/golden-4fe-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat ${TEST_TMP:-/tmp}/golden-4fe-log.txt; exit 1; }
 
 diff -u "$TDIR/fixtures/expected4fe-stream.cfg" "$TMP/stream/haproxy.cfg" \
   && printf "  ok: 4fe stream.cfg совпал с эталоном\n" \

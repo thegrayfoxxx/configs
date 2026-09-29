@@ -14,7 +14,7 @@ export HAPROXY_DIR_OVERRIDE="$TMP"
 source "$TDIR/../scripts/lib/common.sh"
 
 fail=0
-generate_configs > /tmp/golden-v2-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat /tmp/golden-v2-log.txt; exit 1; }
+generate_configs > ${TEST_TMP:-/tmp}/golden-v2-log.txt 2>&1 || { printf "  FAIL: generate_configs упал\n"; cat ${TEST_TMP:-/tmp}/golden-v2-log.txt; exit 1; }
 
 diff -u "$TDIR/fixtures/expected2-stream.cfg" "$TMP/stream/haproxy.cfg" \
   && printf "  ok: v2 stream.cfg совпал\n" \

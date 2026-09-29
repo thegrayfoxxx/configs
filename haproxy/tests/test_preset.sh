@@ -90,7 +90,7 @@ EOF
   export HAPROXY_DIR_OVERRIDE="$TMP"
   # shellcheck disable=SC1091
   source "$PROJ/scripts/lib/common.sh"
-  generate_configs > /tmp/preset-webxhttp-log.txt 2>&1 || { printf "  FAIL: generate после web-direct xhttp\n"; cat /tmp/preset-webxhttp-log.txt; fail=1; }
+  generate_configs > ${TEST_TMP:-/tmp}/preset-webxhttp-log.txt 2>&1 || { printf "  FAIL: generate после web-direct xhttp\n"; cat ${TEST_TMP:-/tmp}/preset-webxhttp-log.txt; fail=1; }
   grep -q 'option forwardfor' "$TMP/web/haproxy.cfg" \
     && grep -q '^backend bk_xhttp' "$TMP/web/haproxy.cfg" \
     && printf "  ok: e2e forwardfor на ящике применён\n" \
@@ -163,7 +163,7 @@ EOF
   export HAPROXY_DIR_OVERRIDE="$TMP"
   # shellcheck disable=SC1091
   source "$PROJ/scripts/lib/common.sh"
-  generate_configs > /tmp/preset-xray-log.txt 2>&1 || { printf "  FAIL: generate после xray-direct\n"; cat /tmp/preset-xray-log.txt; fail=1; }
+  generate_configs > ${TEST_TMP:-/tmp}/preset-xray-log.txt 2>&1 || { printf "  FAIL: generate после xray-direct\n"; cat ${TEST_TMP:-/tmp}/preset-xray-log.txt; fail=1; }
   grep -q 'bind 127.0.0.1:8443 ssl.*accept-proxy' "$TMP/web/haproxy.cfg" \
     && printf "  ok: xray-direct xver дает accept-proxy на бинде\n" \
     || { printf "  FAIL: e2e xray-direct accept-proxy\n"; fail=1; }
@@ -210,7 +210,7 @@ EOF
   export HAPROXY_DIR_OVERRIDE="$TMP"
   # shellcheck disable=SC1091
   source "$PROJ/scripts/lib/common.sh"
-  generate_configs > /tmp/preset-sv-log.txt 2>&1 || { printf "  FAIL: generate после stream-vision\n"; cat /tmp/preset-sv-log.txt; fail=1; }
+  generate_configs > ${TEST_TMP:-/tmp}/preset-sv-log.txt 2>&1 || { printf "  FAIL: generate после stream-vision\n"; cat ${TEST_TMP:-/tmp}/preset-sv-log.txt; fail=1; }
   grep -q 'server xray 127.0.0.1:10443 send-proxy-v2' "$TMP/stream/haproxy.cfg" \
     && grep -q 'use_backend bk_xhttp if' "$TMP/web/haproxy.cfg" \
     && grep -q 'option forwardfor' "$TMP/web/haproxy.cfg" \
@@ -420,7 +420,7 @@ EOF
   export HAPROXY_DIR_OVERRIDE="$TMP"
   # shellcheck disable=SC1091
   source "$PROJ/scripts/lib/common.sh"
-  generate_configs > /tmp/preset-g4-log.txt 2>&1 || { printf "  FAIL: generate на sites4\n"; cat /tmp/preset-g4-log.txt; fail=1; }
+  generate_configs > ${TEST_TMP:-/tmp}/preset-g4-log.txt 2>&1 || { printf "  FAIL: generate на sites4\n"; cat ${TEST_TMP:-/tmp}/preset-g4-log.txt; fail=1; }
   diff -u "$TDIR/fixtures/expected4-stream.cfg" "$TMP/stream/haproxy.cfg" \
     && printf "  ok: golden4 stream совпал\n" \
     || { printf "  FAIL: golden4 stream\n"; fail=1; }

@@ -36,15 +36,19 @@ TLS-прокси для маршрутизации трафика по SNI с а
 
 ## Схема работы
 
+Три фронта `:443` на выбор (пресеты `web-direct` / `xray-direct` / `stream-vision`):
+
 ```mermaid
 flowchart TB
-    CLIENT["Клиент:443"] --> STREAM["haproxy-stream<br/>L4, SNI inspection"]
+    CLIENT["Клиент:443"] --> STREAM["haproxy-stream<br/>L4, SNI inspection<br/>(stream-vision)"]
+    CLIENT2["Клиент:443"] --> WEBD["haproxy-web<br/>:443, SSL termination<br/>(web-direct)"]
+    CLIENT3["Клиент:443"] --> XRAY["Xray<br/>:443 reality<br/>(xray-direct)"]
 
-    STREAM -->|SNI = sni-1| BK1["Backend sni-1<br/>127.0.0.1:10443"]
+    STREAM -->|SNI = reality| BK1["Xray<br/>127.0.0.1:10443<br/>+ PROXY v2"]
     STREAM -->|SNI = default| WEB["haproxy-web<br/>127.0.0.1:8443<br/>SSL termination"]
+    XRAY -->|fallback/target| WEBT["haproxy-web<br/>127.0.0.1:8443<br/>таргет"]
 
-    WEB -->|domain1.com| BE1["Backend 1<br/>127.0.0.1:8080"]
-    WEB -->|domain2.com| BE2["Backend 2<br/>127.0.0.1:9090"]
+    WEB -->|Host + path| BE1["Backend<br/>Xray XHTTP / сайты"]
     WEB -->|unknown| BLACKHOLE["Blackhole<br/>HTTP 403"]
 
     ACME["acme<br/>обновление<br/>сертификатов"] -->|certs| WEB
@@ -294,7 +298,7 @@ docker restart haproxy-web
 | `3` | Сертификаты: выпустить/деплой/проверить/удалить |
 | `4` | Пресеты (готовые сценарии: list/show/apply/diff/new) |
 | `5` | Сервисы и логи: статус, рестарт всех, логи, вкл/выкл/рестарт по каждому + init |
-| `6` | Конфиги и бэкапы: перегенерация с diff, `haproxy -c`, миграция → v3, обновление, откат |
+| `6` | Конфиги и бэкапы: перегенерация с diff, `haproxy -c`, миграция → v3, обновление, откат, глобальные опции |
 
 ---
 
@@ -900,5 +904,10 @@ Golden: фикстуры `tests/fixtures/sites*.conf` → эталоны `expect
 v3 — нейтральные маршруты + явный default + fail-closed,
 v4 — SNI-лог/capture/forwardfor,
 v4fe — именованные фронтенды + области,
-v5be — именованные ящики + ссылки use=).
+v5be — именованные ящики + ссылки use=,
+v6 — топологии пресетов `web-direct`/`xray-direct`/`stream-vision`).
 `shellcheck` подхватывается автоматически, если установлен.
+
+Валидация строгая (fail-closed): без бинарника `haproxy` генерация падает
+(битый конфиг не пишется молча). Обход только явный — `HAPROXY_NO_VALIDATE=1`
+(`tests/run.sh` его выставляет, в проде так не делать).

@@ -69,10 +69,12 @@ GLOBAL_OPTS=(
   "bind_stream=*:443"
   "bind_web=*:8443"       # для loopback-only: 127.0.0.1:8443
   "blackhole=deny"        # deny|tarpit
-  # "blackhole_deny_status=404"  # код для deny (100-599), дефолт 403
+  # "blackhole_deny_status=404"  # пример нестандартного кода (100-599); дефолт 403
   # PROXY-пара stream->web (дефолт-запись выше должна слать/читать парно):
   # "stream_web_proxy=off"  # off|v1|v2 — слать PROXY в web-бэкенд
   # "web_accept_proxy=off"  # off|on — читать PROXY на bind web
+  # Зеркало Xray-стороны (realitySettings.xver): fallback xver=2 шлет PROXY в web-таргет.
+  # "xray_xver=off"  # off|v2 — сверяется с web_accept_proxy (варнинг при рассинхроне)
   # "backend_check=off"     # off|tcp — healthcheck-и бэкендов (шумят в логах!)
   # "forwardfor_backends="  # теги бэкендов через запятую для option forwardfor
   # "stream_log_sni=off"    # off|on — SNI в stream-лог

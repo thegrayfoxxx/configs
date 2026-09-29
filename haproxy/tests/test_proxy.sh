@@ -20,7 +20,7 @@ mktmp() {
   export HAPROXY_DIR_OVERRIDE="$TMP"
   # shellcheck disable=SC1091
   source "$TDIR/../scripts/lib/common.sh"
-  generate_configs > /tmp/proxy-golden-log.txt 2>&1 || { printf "  FAIL: generate упал на sites3\n"; cat /tmp/proxy-golden-log.txt; fail=1; }
+  generate_configs > ${TEST_TMP:-/tmp}/proxy-golden-log.txt 2>&1 || { printf "  FAIL: generate упал на sites3\n"; cat ${TEST_TMP:-/tmp}/proxy-golden-log.txt; fail=1; }
   diff -u "$TDIR/fixtures/expected3-stream.cfg" "$TMP/stream/haproxy.cfg" \
     && printf "  ok: wave3 stream совпал\n" \
     || { printf "  FAIL: wave3 stream отличается\n"; fail=1; }

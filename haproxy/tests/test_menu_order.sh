@@ -84,14 +84,14 @@ EOF
   || { printf "  FAIL: структура секций\n"; fail=1; }
 
 # Дым: главное меню показывает пункт ? и выходит по 0 (однократный ввод).
-printf '0\n' > /tmp/menu-order-tty
-if MENU_TTY=/tmp/menu-order-tty timeout 10 bash "$PROJ/haproxy.sh" < /dev/null > /tmp/menu-order-out.txt 2>&1; then
-  grep -q '❓ Шпаргалка' /tmp/menu-order-out.txt \
+printf '0\n' > ${TEST_TMP:-/tmp}/menu-order-tty
+if MENU_TTY=${TEST_TMP:-/tmp}/menu-order-tty timeout 10 bash "$PROJ/haproxy.sh" < /dev/null > ${TEST_TMP:-/tmp}/menu-order-out.txt 2>&1; then
+  grep -q '❓ Шпаргалка' ${TEST_TMP:-/tmp}/menu-order-out.txt \
     && printf "  ok: пункт ? отображается, выход по 0 работает\n" \
     || { printf "  FAIL: нет пункта ?\n"; fail=1; }
 else
   printf "  FAIL: меню не вышло по 0\n"; fail=1
 fi
-rm -f /tmp/menu-order-tty /tmp/menu-order-out.txt
+rm -f ${TEST_TMP:-/tmp}/menu-order-tty ${TEST_TMP:-/tmp}/menu-order-out.txt
 
 exit "$fail"
