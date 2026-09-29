@@ -54,7 +54,7 @@ flowchart LR
 | Xray (полный путь) | `sites.conf` (вопрос пресета) | Что сгенерируется |
 |---|---|---|
 | `inbounds[].streamSettings.tcpSettings.acceptProxyProtocol: true` (reality, `:10443`) | `STREAM_BACKENDS`: `name=xray ... proxy=v2` (`XRAY_PROXY=v2`) | `stream/haproxy.cfg`: `server xray 127.0.0.1:10443 send-proxy-v2` |
-| `inbounds[].streamSettings.realitySettings.xver: 2` (reality-fallback в `target`) | `GLOBAL_OPTS`: `web_accept_proxy=on` (`WEB_ACCEPT_PROXY=on`) | `web/haproxy.cfg`: `bind 127.0.0.1:8443 ssl ... accept-proxy` |
+| `inbounds[].streamSettings.realitySettings.xver: 2` (reality-fallback в `target`) | `GLOBAL_OPTS`: `web_accept_proxy=on` (`WEB_ACCEPT_PROXY=on`) + зеркало `xray_xver=v2` (`XRAY_XVER`, генератор варнит при рассинхроне) | `web/haproxy.cfg`: `bind 127.0.0.1:8443 ssl ... accept-proxy` |
 | `inbounds[].streamSettings.realitySettings.target: "127.0.0.1:8443"` + `serverNames: ["<stub>"]` | `SELFSTEAL=yes`, `STUB_DOMAIN` = `REALITY_DOMAINS` | `STREAM_ROUTES`: `sni=<stub> use=xray`; `WEB_ROUTES`: `host=<stub> use=stub` |
 | `inbounds[].streamSettings.sockopt.trustedXForwardedFor: ["X-Forwarded-For"]` (xhttp, `:11443`) | само (`GLOBAL_OPTS` → `forwardfor_backends=bk_xhttp` при `WEB_MODE=xhttp-split`) | `web/haproxy.cfg`: `option forwardfor` в `backend bk_xhttp` |
 | `inbounds[].streamSettings.xhttpSettings.path: "/data/"` | `WEB_ROUTES`: `... use=xhttp path=...` (`XHTTP_PATH`, строго равно) | `web/haproxy.cfg`: `acl path_xhttp_* path_beg /data/` + `use_backend bk_xhttp` |

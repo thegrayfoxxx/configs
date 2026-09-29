@@ -1,5 +1,7 @@
 # Формат: VAR|промпт|дефолт|валидатор[|when:COND]
 # COND: VAR==val[&&VAR2!=val2], значения через запятую = ИЛИ.
+# derive:VAR=tag DOMVAR PORTVAR | VAR=eq AVAR BVAR | VAR=has LISTVAR ITEMVAR.
+# warn:COND|текст[|when:COND2] — мягкое предупреждение после всех значений.
 ACME_EMAIL|Email для ACME|mail@example.com|email
 SELFSTEAL|Селфстил (yes — REALITY SNI совпадает со stub-доменом)|no|oneof:no,yes
 WEB_MODE|Режим web (sites — сайты, xhttp-split — path-сплит в Xray)|sites|oneof:sites,xhttp-split
@@ -12,6 +14,7 @@ STUB_PORT|Порт заглушки (статика; при SELFSTEAL=yes — т
 REALITY_DOMAINS|Домены reality через пробел (SNI vision-клиентов; для селфстила = stub-домен)|vpn.example.com|snis
 XRAY_PORT|Порт Xray reality-inbound (слушает loopback)|10443|port
 XRAY_PROXY|Слать PROXY в Xray (требует acceptProxyProtocol в Xray!)|v2|oneof:off,v1,v2
+XRAY_XVER|Xray шлет PROXY в web-таргет (realitySettings.xver: 2 = v2, иначе off)|v2|oneof:off,v2
 STREAM_WEB_PROXY|Слать PROXY из stream в web|v2|oneof:off,v1,v2
 WEB_ACCEPT_PROXY|Читать PROXY на web (парно к предыдущему!)|on|oneof:off,on
 BLACKHOLE|Режим blackhole для чужих SNI/Host|deny|oneof:deny,tarpit
@@ -19,3 +22,5 @@ TIMEOUT_PROFILE|Профиль таймаутов (sites-50s — обычные,
 BACKEND_CHECK|Healthcheck-и бэкендов (tcp шумит в логах Xray)|off|oneof:off,tcp
 STREAM_LOG_SNI|Писать SNI в stream-лог|off|oneof:off,on
 LOGS_CAPTURE|Capture Host и X-Forwarded-For в web-лог|off|oneof:off,on
+derive:SELFSTEAL_OK=has REALITY_DOMAINS STUB_DOMAIN
+warn:SELFSTEAL_OK==no|SELFSTEAL=yes, но STUB_DOMAIN нет в REALITY_DOMAINS — для селфстила укажи тот же домен|when:WEB_MODE==xhttp-split&&SELFSTEAL==yes

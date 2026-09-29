@@ -133,6 +133,7 @@ STUB_DOMAIN=drop.example.com
 STUB_PORT=8080
 BLACKHOLE=deny
 WEB_ACCEPT_PROXY=off
+XRAY_XVER=off
 TIMEOUT_PROFILE=sites-50s
 BACKEND_CHECK=off
 LOGS_CAPTURE=off
@@ -150,6 +151,7 @@ STUB_DOMAIN=drop.example.com
 STUB_PORT=8080
 BLACKHOLE=deny
 WEB_ACCEPT_PROXY=on
+XRAY_XVER=v2
 TIMEOUT_PROFILE=sites-50s
 BACKEND_CHECK=off
 LOGS_CAPTURE=off
@@ -186,6 +188,7 @@ STUB_PORT=8080
 REALITY_DOMAINS=drop.example.com
 XRAY_PORT=10443
 XRAY_PROXY=v2
+XRAY_XVER=v2
 STREAM_WEB_PROXY=v2
 WEB_ACCEPT_PROXY=on
 BLACKHOLE=deny
@@ -233,6 +236,7 @@ STUB_PORT=8080
 REALITY_DOMAINS=vpn.example.com
 XRAY_PORT=10443
 XRAY_PROXY=off
+XRAY_XVER=off
 STREAM_WEB_PROXY=v2
 WEB_ACCEPT_PROXY=on
 BLACKHOLE=deny
@@ -250,6 +254,82 @@ EOF
     || { printf "  FAIL: stream-vision no-selfsteal\n%s\n" "$out"; fail=1; }
   trap - EXIT
   rm -rf "$TMP"
+}
+
+# --- warn: SELFSTEAL=yes, но REALITY != STUB — предупреждение, рендер идет ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  cat > "$TMP/answers" << 'EOF'
+ACME_EMAIL=t@e.com
+SELFSTEAL=yes
+WEB_MODE=xhttp-split
+STUB_DOMAIN=drop.example.com
+XHTTP_DOMAIN=x.cdn.example.com
+XHTTP_PORT=11443
+XHTTP_PATH=/data/
+STUB_PORT=8080
+REALITY_DOMAINS=other.example.com
+XRAY_PORT=10443
+XRAY_PROXY=v2
+XRAY_XVER=v2
+STREAM_WEB_PROXY=v2
+WEB_ACCEPT_PROXY=on
+BLACKHOLE=deny
+TIMEOUT_PROFILE=xhttp-1h
+BACKEND_CHECK=off
+STREAM_LOG_SNI=off
+LOGS_CAPTURE=off
+EOF
+  out=$(HAPROXY_DIR_OVERRIDE="$PROJ" bash "$PROJ/scripts/preset.sh" apply stream-vision --dry-run --answers "$TMP/answers" 2>"$TMP/stderr.txt") \
+    || { printf "  FAIL: selfsteal-warn уронил рендер\n"; fail=1; }
+  grep -q 'SELFSTEAL=yes' "$TMP/stderr.txt" \
+    && echo "$out" | grep -q '"sni=other.example.com use=xray"' \
+    && printf "  ok: selfsteal-mismatch предупреждает и рендерит\n" \
+    || { printf "  FAIL: selfsteal-warn\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
+# --- parity: xray_xver=v2 + accept=off — варнинг, генерация идет ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  mkdir -p "$TMP/stream" "$TMP/web" "$TMP/custom"
+  cat > "$TMP/sites.conf" << 'EOF'
+ACME_EMAIL="t@e.com"
+WEB_BACKENDS=(
+  "name=stub to=127.0.0.1:8080"
+)
+WEB_ROUTES=(
+  "host=a.com use=stub"
+)
+GLOBAL_OPTS=(
+  "timeout_connect=5s"
+  "timeout_client=50s"
+  "timeout_server=50s"
+  "bind_web=127.0.0.1:8443"
+  "blackhole=deny"
+  "xray_xver=v2"
+)
+EOF
+  export HAPROXY_DIR_OVERRIDE="$TMP"
+  # shellcheck disable=SC1091
+  source "$PROJ/scripts/lib/common.sh"
+  if generate_configs >"$TMP/gen.log" 2>&1; then
+    grep -q 'Xray шлёт PROXY' "$TMP/gen.log" \
+      && printf "  ok: xver-parity предупреждает\n" \
+      || { printf "  FAIL: нет xver-варнинга\n"; fail=1; }
+  else
+    printf "  FAIL: generate с xver упал\n"; fail=1
+  fi
+  # мусор в xray_xver — жесткая ошибка
+  HAPROXY_DIR_OVERRIDE="$TMP" bash -c 'source "$0/scripts/lib/common.sh" 2>/dev/null; GLOBAL_OPTS=("xray_xver=v3"); check_proxy_parity' "$PROJ" >/dev/null 2>&1 \
+    && { printf "  FAIL: мусор xray_xver принят\n"; fail=1; } \
+    || printf "  ok: мусор xray_xver отклонён\n"
+  trap - EXIT
+  rm -rf "$TMP"
+  unset HAPROXY_DIR_OVERRIDE
 }
 
 # --- answers-валидация: мусор отклоняется ---

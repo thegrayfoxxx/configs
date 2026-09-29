@@ -127,6 +127,31 @@ EOF
   else
     printf "  FAIL: идентичное слияние упало\n"; cat "$TMP/m3.log"; fail=1
   fi
+
+  # B4: расхождение биндов при merge — громкий варнинг, не молча.
+  cat > "$TMP/sites.conf" << 'EOF'
+ACME_EMAIL="t@e.com"
+WEB_ROUTES=(
+  "host=a.com to=127.0.0.1:8080"
+)
+GLOBAL_OPTS=(
+  "timeout_connect=5s"
+  "timeout_client=50s"
+  "timeout_server=50s"
+  "bind_web=127.0.0.1:8443"
+  "blackhole=deny"
+)
+EOF
+  printf 'ACME_EMAIL=t@e.com\nWEB_MODE=sites\nSITES_LINES=b.com:8080\nBLACKHOLE=deny\nTIMEOUT_PROFILE=sites-50s\nBACKEND_CHECK=off\nLOGS_CAPTURE=off\n' > "$TMP/answers4"
+  if HAPROXY_DIR_OVERRIDE="$TMP" PRESETS_DIR_OVERRIDE="$PROJ/presets" \
+    bash "$PROJ/scripts/preset.sh" apply web-direct --merge --yes --answers "$TMP/answers4" > "$TMP/m4.log" 2>&1; then
+    grep -q "bind_web.*127.0.0.1:8443.*\*:443\|bind_web.*\*:443.*127.0.0.1:8443" "$TMP/m4.log" \
+      && grep -q '"bind_web=127.0.0.1:8443"' "$TMP/sites.conf" \
+      && printf "  ok: merge предупреждает о расхождении bind_web\n" \
+      || { printf "  FAIL: нет варнинга bind_web\n"; fail=1; }
+  else
+    printf "  FAIL: merge с разными биндами упал\n"; cat "$TMP/m4.log"; fail=1
+  fi
   trap - EXIT
   rm -rf "$TMP"
 }

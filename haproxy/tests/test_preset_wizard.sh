@@ -52,7 +52,7 @@ mkdir -p "$SV/stream" "$SV/web" "$SV/custom"
 # Порядок вопросов: email, SELFSTEAL, WEB_MODE, [STUB только если yes: пропуск],
 # XHTTP_DOMAIN/PORT/PATH/STUB_PORT, REALITY, XRAY_PORT, XRAY_PROXY, STREAM_WEB_PROXY,
 # WEB_ACCEPT_PROXY, BLACKHOLE, TIMEOUT, BACKEND_CHECK, STREAM_LOG_SNI, LOGS_CAPTURE.
-printf '%s\n' 't@e.com' 'no' 'xhttp-split' 'x.cdn.example.com' '11443' '/data/' '8080' 'vpn.example.com' '10443' 'off' 'v2' 'on' 'deny' 'xhttp-1h' 'off' 'off' 'off' > "$SV/tty-in"
+printf '%s\n' 't@e.com' 'no' 'xhttp-split' 'x.cdn.example.com' '11443' '/data/' '8080' 'vpn.example.com' '10443' 'off' 'off' 'v2' 'on' 'deny' 'xhttp-1h' 'off' 'off' 'off' > "$SV/tty-in"
 printf '%s\n' 'y' 'n' >> "$SV/tty-in"
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply stream-vision > "$1/session.log" 2>&1' _ "$SV" "$PROJ" \
   || { printf "  FAIL: when-визард завис/упал\n"; fail=1; }

@@ -282,6 +282,9 @@ collect() {
     if [[ "$line" == derive:* ]]; then
       continue # derive — вторым проходом
     fi
+    if [[ "$line" == warn:* ]]; then
+      continue # warn — третьим проходом
+    fi
     IFS='|' read -r var prompt def validator when_field extra <<< "$line"
     if [ -n "${extra:-}" ]; then
       log_error "  ❌ Битая строка questions (лишний '|'): '${line}'"
@@ -363,7 +366,8 @@ collect() {
       PVALS["$var"]="$(ask "$var" "$prompt" "$def" "$validator")" || return 1
     fi
   done < "$qfile"
-  # Второй проход: derive (сейчас только tag: VAR=tag DOMVAR PORTVAR)
+  # Второй проход: derive (tag: VAR=tag DOMVAR PORTVAR; eq: VAR=eq AVAR BVAR -> yes/no;
+  # has: VAR=has LISTVAR ITEMVAR -> yes/no, ITEM есть в списке через пробел).
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}" # терпим CRLF
     [[ "$line" == derive:* ]] || continue
@@ -378,11 +382,61 @@ collect() {
         read -r dvar2 pvar2 <<< "$dargs"
         PVALS["$dvar"]="$(tag_for_domain "${PVALS[$dvar2]}")_${PVALS[$pvar2]}"
         ;;
+      eq)
+        local avar bvar
+        read -r avar bvar <<< "$dargs"
+        if [ "${PVALS[$avar]:-}" = "${PVALS[$bvar]:-}" ] && [ -n "${PVALS[$avar]:-}" ]; then
+          PVALS["$dvar"]="yes"
+        else
+          PVALS["$dvar"]="no"
+        fi
+        ;;
+      has)
+        local lvar ivar _h _hi
+        read -r lvar ivar <<< "$dargs"
+        PVALS["$dvar"]="no"
+        local -a _hl=()
+        read -ra _hl <<< "${PVALS[$lvar]:-}" || true
+        for ((_hi = 0; _hi < ${#_hl[@]}; _hi++)); do
+          if [ "${_hl[$_hi]}" = "${PVALS[$ivar]:-}" ] && [ -n "${PVALS[$ivar]:-}" ]; then
+            PVALS["$dvar"]="yes"
+          fi
+        done
+        ;;
       *)
         log_error "  ❌ Неизвестный derive '${kind}' (пресет битый)"
         return 1
         ;;
     esac
+  done < "$qfile"
+  # Третий проход: warn:COND|текст — мягкие проверки после всех значений.
+  # Важно: варнинги в stderr, stdout dry-run остается чистым конфигом.
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}" # терпим CRLF
+    [[ "$line" == warn:* ]] || continue
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    local wspec="${line#warn:}"
+    local wcond="${wspec%%|*}"
+    local wtext="${wspec#*|}"
+    if [ "$wcond" = "$wspec" ]; then
+      log_error "  ❌ Битая warn-строка (жди warn:COND|текст): '${line}'"
+      return 1
+    fi
+    # when: внутри warn — условие показа (чтобы не дублировать логику в COND).
+    local wwhen=""
+    if [[ "$wtext" == *"|when:"* ]]; then
+      wwhen="${wtext#*|when:}"
+      wtext="${wtext%%|when:*}"
+    fi
+    if [ -n "$wwhen" ]; then
+      cond_satisfied "$wwhen" || continue
+      local _wcrc=$?
+      [ "$_wcrc" -eq 2 ] && return 1
+    fi
+    cond_satisfied "$wcond" || continue
+    local _ccrc=$?
+    [ "$_ccrc" -eq 2 ] && return 1
+    log_warn "  ⚠  ${wtext}"
   done < "$qfile"
 }
 
@@ -937,6 +991,17 @@ preset_merge_rendered() {
   c_opts=$(printf "%s\n" ${GLOBAL_OPTS[@]+"${GLOBAL_OPTS[@]}"} | sort)
   if [ "$c_opts" != "$n_opts" ]; then
     log_warn "  ⚠  Глобальные опции пресета проигнорированы, оставлены текущие"
+    # Бинды — отдельно и громко: молчаливое расхождение ушей дает гибрид,
+    # который ни один пресет не генерит (например web *:443 vs 127.0.0.1:8443).
+    local _bk
+    for _bk in bind_stream bind_web; do
+      local _cur _new
+      _cur=$(cfg_opt "$_bk" "")
+      _new=$(printf "%s\n" "$n_opts" | grep -m1 "^${_bk}=" | cut -d= -f2- || true)
+      if [ -n "$_cur" ] && [ -n "$_new" ] && [ "$_cur" != "$_new" ]; then
+        log_warn "  ⚠  ${_bk}: текущий '${_cur}', у пресета '${_new}' — оставлен текущий"
+      fi
+    done
   fi
   validate_all || return 1
 }
@@ -1141,7 +1206,8 @@ EOF
 # Формат: VAR|промпт|дефолт|валидатор[|when:COND]
 # Валидаторы: any|nonempty|domain|port|email|bind|snis|hostport|path|oneof:a,b|list:domainport|list:hostport
 # COND: VAR==val[&&VAR2!=val2], значения через запятую = ИЛИ. Вопрос задается только если условие выполнено.
-# derive:VAR=tag DOMVAR PORTVAR — вычислить тег бэкенда (site_домен_порт)
+# derive:VAR=tag DOMVAR PORTVAR | VAR=eq AVAR BVAR | VAR=has LISTVAR ITEMVAR (yes/no).
+# warn:COND|текст[|when:COND2] — мягкое предупреждение после всех значений.
 ACME_EMAIL|Email для ACME|mail@example.com|email
 TIMEOUT_PROFILE|Профиль таймаутов (sites-50s — обычные сайты, xhttp-1h — долгие сессии)|sites-50s|oneof:sites-50s,xhttp-1h
 SITES_LINES|Сайты: домен и бэкенд||list:hostport
