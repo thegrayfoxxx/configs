@@ -152,6 +152,17 @@ EOF
   else
     printf "  FAIL: merge с разными биндами упал\n"; cat "$TMP/m4.log"; fail=1
   fi
+
+  # B5: битый рендер в preset_losses — ошибка, а не «потерь нет».
+  # preset.sh при source выполняет dispatch: подсовываем argv, чтобы не уйти в меню.
+  printf 'not bash at all (((' > "$TMP/broken-render"
+  if HAPROXY_DIR_OVERRIDE="$TMP" PRESETS_DIR_OVERRIDE="$PROJ/presets" \
+      bash -c 'rfile="$1"; set -- list; source "$0/scripts/commands/preset.sh" >/dev/null 2>&1; preset_losses "$rfile" >/dev/null 2>&1' \
+        "$PROJ" "$TMP/broken-render"; then
+    printf "  FAIL: битый рендер принят за отсутствие потерь\n"; fail=1
+  else
+    printf "  ok: битый рендер в losses — ошибка\n"
+  fi
   trap - EXIT
   rm -rf "$TMP"
 }

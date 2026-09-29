@@ -69,4 +69,26 @@ HAPROXY_NO_VALIDATE=1 run_v "$TDIR/fixtures/expected6-web-direct-web.cfg" "hapro
   && printf "  ok: bypass работает\n" \
   || { printf "  FAIL: bypass сломан\n"; fail=1; }
 
+# Диагностика различает состояния: демон лежит vs контейнеров нет.
+run_v_show() {
+  PATH="$TMP/bin:$PATH" \
+    bash -c 'source "$0/scripts/lib/common.sh" >/dev/null 2>&1; validate_cfg "$1" "$2"' "$PROJ" "$1" "$2" 2>&1
+}
+out=$(HAPROXY_NO_VALIDATE= run_v_show "$TDIR/fixtures/expected6-web-direct-web.cfg" "haproxy-web" || true)
+echo "$out" | grep -q 'не запущены' \
+  && printf "  ok: говорит что поднять контейнеры\n" \
+  || { printf "  FAIL: нет подсказки про контейнеры\n"; fail=1; }
+cat > "$TMP/bin/docker" << 'EOF'
+#!/bin/bash
+case "$1" in
+  info) exit 1 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$TMP/bin/docker"
+out=$(HAPROXY_NO_VALIDATE= run_v_show "$TDIR/fixtures/expected6-web-direct-web.cfg" "haproxy-web" || true)
+echo "$out" | grep -q 'демон' \
+  && printf "  ok: говорит что демон недоступен\n" \
+  || { printf "  FAIL: нет подсказки про демон\n"; fail=1; }
+
 exit "$fail"

@@ -308,11 +308,14 @@ ensure_configs() {
   if [ ! -f "$stream_cfg" ] || [ ! -f "$web_cfg" ]; then
     printf "  ${YELLOW}⚠  Конфиги HAProxy не найдены.${NC}\n"
     printf "  ${GREEN}1.${NC} Сгенерировать\n"
+    printf "  ${GREEN}3.${NC} Только показать diff (без записи)\n"
     printf "  ${RED}2.${NC} Пропустить\n\n"
     printf "${CYAN}👉 Пункт:${NC} "
     read -r gen_choice < /dev/tty || gen_choice=""
     if [ "$gen_choice" = "1" ]; then
       generate_configs
+    elif [ "$gen_choice" = "3" ]; then
+      preview_configs || true
     fi
     return
   fi
@@ -326,11 +329,14 @@ ensure_configs() {
     if [ "$sites_time" -gt "$stream_time" ] || [ "$sites_time" -gt "$web_time" ]; then
       printf "  ${YELLOW}⚠  sites.conf новее конфигов HAProxy.${NC}\n"
       printf "  ${GREEN}1.${NC} Перегенерировать\n"
+      printf "  ${GREEN}3.${NC} Только показать diff (без записи)\n"
       printf "  ${RED}2.${NC} Пропустить\n\n"
       printf "${CYAN}👉 Пункт:${NC} "
       read -r regen_choice < /dev/tty || regen_choice=""
       if [ "$regen_choice" = "1" ]; then
         generate_configs
+      elif [ "$regen_choice" = "3" ]; then
+        preview_configs || true
       fi
     fi
   fi
@@ -345,10 +351,10 @@ interactive_setup() {
   while true; do
     printf "  ${CYAN}📧 Email для сертификатов:${NC} "
     read -r acme_email < /dev/tty
-    if [ -n "$acme_email" ] && [[ "$acme_email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+    if validate_email "$acme_email" 2>/dev/null; then
       break
     fi
-    printf "  ${RED}   ✗ Введи корректный email (например, user@example.com)${NC}\n"
+    printf "  ${RED}   ✗ Введи корректный email латиницей (например, user@example.com)${NC}\n"
   done
 
   # Stream-маршруты (нейтрально: SNI -> backend, без xray-специфики)
@@ -692,6 +698,7 @@ rollback_backup() {
   [ -f "$src/stream.cfg" ] && cp "$src/stream.cfg" "${HAPROXY_DIR}/stream/haproxy.cfg"
   [ -f "$src/web.cfg" ] && cp "$src/web.cfg" "${HAPROXY_DIR}/web/haproxy.cfg"
   log_info "✅ Откат к ${name} выполнен (предыдущее состояние — в свежем бэкапе pre-rollback)"
+  log_warn "  ⚠  Проверь откаченные конфиги (раздел 6 → проверка): валидацию при откате не делаем"
 }
 
 # --- ВАЛИДАЦИЯ КОНФИГОВ (волна 1) ---
@@ -710,7 +717,12 @@ validate_cfg() {
     return 1
   fi
   # Бинарника нет (типичный хост: haproxy только в контейнерах) — пробуем docker.
-  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  local _have_docker=false _daemon_ok=false
+  if command -v docker >/dev/null 2>&1; then
+    _have_docker=true
+    docker info >/dev/null 2>&1 && _daemon_ok=true
+  fi
+  if [ "$_daemon_ok" = true ]; then
     if [ -z "$want" ]; then
       case "$file" in
         */stream/*) want="haproxy-stream" ;;
@@ -740,12 +752,22 @@ validate_cfg() {
       docker exec "$cname" rm -f "$remote" >/dev/null 2>&1 || true
       return 1
     fi
+    # Демон есть, контейнеров haproxy-* нет — говорим что делать, а не просто фейлим.
+    log_error "  ❌ Нечем проверить ${file}: docker-демон на месте, но haproxy-контейнеры не запущены."
+    log_error "     Подними их (раздел 5 → up, профили stream/web) либо генерируй там, где они крутятся."
+    log_error "     Локально доступен предпросмотр без валидации (раздел 6 → перегенерировать показывает diff)."
+  elif [ "$_have_docker" = true ]; then
+    log_error "  ❌ Нечем проверить ${file}: docker стоит, но демон недоступен (не запущен Docker?)."
+    log_error "     Запусти демон либо генерируй там, где крутятся haproxy-контейнеры."
+  else
+    log_error "  ❌ Нечем проверить ${file}: нет ни бинарника haproxy, ни docker."
+    log_error "     Поставь haproxy локально либо генерируй там, где крутятся haproxy-контейнеры."
   fi
   if [ -n "${HAPROXY_NO_VALIDATE:-}" ]; then
-    log_warn "  ⚠  Нечем проверить ${file} (HAPROXY_NO_VALIDATE=1) — пропускаю валидацию"
+    log_warn "  ⚠  HAPROXY_NO_VALIDATE=1 — пропускаю валидацию ${file} на свой риск"
     return 0
   fi
-  log_error "  ❌ Нечем проверить ${file}: нет ни бинарника haproxy, ни запущенного контейнера (обход: HAPROXY_NO_VALIDATE=1)"
+  log_error "  ❌ Генерация остановлена (fail-closed). Обход только явный: HAPROXY_NO_VALIDATE=1"
   return 1
 }
 

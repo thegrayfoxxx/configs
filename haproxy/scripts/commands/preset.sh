@@ -775,7 +775,7 @@ preset_losses() {
     STREAM_ROUTES=("${s_sr[@]}")
     WEB_ROUTES=("${s_wr[@]}")
     GLOBAL_OPTS=("${s_opts[@]}")
-    return 0
+    return 1
   fi
   local -a n_fe_s=() n_fe_w=() n_be_s=() n_be_w=()
   mapfile -t n_fe_s < <(_names_of stream frontend)
@@ -1191,7 +1191,7 @@ cmd_apply() {
   fi
   log_info "  ✅ sites.conf записан (бэкап: ${bd})"
   if ! generate_configs; then
-    log_error "  ❌ Генерация не удалась — sites.conf новый, конфиги старые (см. бэкап)"
+    log_error "  ❌ Генерация не удалась — sites.conf новый, конфиги старые (откат: раздел 6 → бэкапы → ${bd##*/})"
     return 1
   fi
   if [ "$yes" != true ]; then
