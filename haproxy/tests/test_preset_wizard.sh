@@ -17,7 +17,7 @@ mkdir -p "$TMP/stream" "$TMP/web" "$TMP/custom"
 # Сценарий пользователя web-direct sites: email, режим, два сайта, конец списка,
 # blackhole/timeouts/check/logs по дефолту (пусто), подтвердить запись (y), сервисы не поднимать (n).
 printf '%s\n' 't@e.com' 'sites' 'a.com' '8080' 'b.com' '9090' '' '' '' '' '' > "$TMP/tty-in"
-printf '%s\n' 'y' 'n' >> "$TMP/tty-in"
+printf '%s\n' '' 'y' 'n' >> "$TMP/tty-in"
 
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply web-direct > "$1/session.log" 2>&1' _ "$TMP" "$PROJ" \
   || { printf "  FAIL: визард завис или упал (таймаут/код)\n"; fail=1; }
@@ -53,7 +53,7 @@ mkdir -p "$SV/stream" "$SV/web" "$SV/custom"
 # XHTTP_DOMAIN/PORT/PATH/STUB_PORT, REALITY, XRAY_PORT, XRAY_PROXY, STREAM_WEB_PROXY,
 # WEB_ACCEPT_PROXY, BLACKHOLE, TIMEOUT, BACKEND_CHECK, STREAM_LOG_SNI, LOGS_CAPTURE.
 printf '%s\n' 't@e.com' 'no' 'xhttp-split' 'x.cdn.example.com' '11443' '/data/' '8080' 'vpn.example.com' '10443' 'off' 'off' 'v2' 'on' 'deny' 'xhttp-1h' 'off' 'off' 'off' > "$SV/tty-in"
-printf '%s\n' 'y' 'n' >> "$SV/tty-in"
+printf '%s\n' 'y' 'y' 'n' >> "$SV/tty-in"
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply stream-vision > "$1/session.log" 2>&1' _ "$SV" "$PROJ" \
   || { printf "  FAIL: when-визард завис/упал\n"; fail=1; }
 grep -q '"host=x.cdn.example.com use=xhttp path=/data/"' "$SV/sites.conf" \
@@ -66,7 +66,7 @@ grep -q '"host=x.cdn.example.com use=xhttp path=/data/"' "$SV/sites.conf" \
 CR="$TMP/crlf"
 mkdir -p "$CR/stream" "$CR/web" "$CR/custom"
 printf '%s\r\n' 't@e.com' 'sites' 'a.com' '8080' '' '' '' '' '' > "$CR/tty-in"
-printf '%s\r\n' 'y' 'n' >> "$CR/tty-in"
+printf '%s\r\n' '' 'y' 'n' >> "$CR/tty-in"
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply web-direct > "$1/session.log" 2>&1' _ "$CR" "$PROJ" \
   || { printf "  FAIL: CRLF-визард завис/упал\n"; fail=1; }
 grep -q '^ACME_EMAIL="t@e.com"$' "$CR/sites.conf" \

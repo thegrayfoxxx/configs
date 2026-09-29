@@ -438,4 +438,58 @@ EOF
   unset HAPROXY_DIR_OVERRIDE
 }
 
+# --- --no-validate: пишет без проверяльщика, с варнингом ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  cat > "$TMP/answers" << 'EOF'
+ACME_EMAIL=t@e.com
+WEB_MODE=sites
+SITES_LINES=a.com:8080
+BLACKHOLE=deny
+TIMEOUT_PROFILE=sites-50s
+BACKEND_CHECK=off
+LOGS_CAPTURE=off
+EOF
+  if HAPROXY_NO_VALIDATE= HAPROXY_DIR_OVERRIDE="$TMP" PRESETS_DIR_OVERRIDE="$PROJ/presets" \
+      bash "$PROJ/scripts/preset.sh" apply web-direct --yes --no-validate --answers "$TMP/answers" > "$TMP/nv.log" 2>&1; then
+    grep -q 'Пропускаю проверку' "$TMP/nv.log" \
+      && [ -f "$TMP/web/haproxy.cfg" ] \
+      && printf "  ok: --no-validate пишет с варнингом\n" \
+      || { printf "  FAIL: --no-validate без варнинга/файлов\n"; fail=1; }
+  else
+    printf "  FAIL: --no-validate упал\n"; fail=1
+  fi
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
+# --- пустой ответ на вопрос валидации = строго (без проверяльщика падает) ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  cat > "$TMP/answers" << 'EOF'
+ACME_EMAIL=t@e.com
+WEB_MODE=sites
+SITES_LINES=a.com:8080
+BLACKHOLE=deny
+TIMEOUT_PROFILE=sites-50s
+BACKEND_CHECK=off
+LOGS_CAPTURE=off
+EOF
+  printf '\ny\nn\n' > "$TMP/tty-in"
+  if HAPROXY_NO_VALIDATE= PRESET_TTY="$TMP/tty-in" HAPROXY_DIR_OVERRIDE="$TMP" PRESETS_DIR_OVERRIDE="$PROJ/presets" \
+      bash "$PROJ/scripts/preset.sh" apply web-direct --answers "$TMP/answers" > "$TMP/strict.log" 2>&1; then
+    printf "  FAIL: строгая генерация без проверяльщика прошла\n"; fail=1
+  else
+    grep -q 'не прошёл валидацию\|Нечем проверить' "$TMP/strict.log" \
+      && [ -f "$TMP/sites.conf" ] \
+      && [ ! -f "$TMP/web/haproxy.cfg" ] \
+      && printf "  ok: пустой ответ = строго (sites записан, cfg нет)\n" \
+      || { printf "  FAIL: строгость по дефолту\n"; fail=1; }
+  fi
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
 exit "$fail"

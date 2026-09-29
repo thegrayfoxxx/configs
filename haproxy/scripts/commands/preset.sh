@@ -1109,7 +1109,10 @@ cmd_apply() {
   # shellcheck disable=SC2064
   trap "rm -f '$tmp_render'" RETURN
   printf "%s\n" "$rendered" > "$tmp_render"
-  local losses="" losses_rc=0 losses_tmp="" mode="overwrite"
+  local losses="" losses_rc=0 losses_tmp="" mode="overwrite" genflag=""
+  if [ "$novalidate" = true ]; then
+    genflag="--no-validate"
+  fi
   if losses_tmp=$(preset_losses "$tmp_render"); then
     losses="$losses_tmp"
   else
@@ -1161,6 +1164,19 @@ cmd_apply() {
       if [ "$wipe" != "ДА" ]; then log_info "Отмена (живые файлы не тронуты)"; return 0; fi
       printf "\n"
     fi
+    # Вопрос валидации — через pread (единый PRESET_FD): ask_validate из menu.sh
+    # сидит на другом FD и при файловом вводе читал бы сначала.
+    if [ "$novalidate" = true ]; then
+      genflag="--no-validate"
+    else
+      printf "  ${CYAN}👉 Проверить конфиг haproxy -c перед записью? [Y/n]:${NC} "
+      local vans
+      pread -r vans || vans=""
+      if [ "$vans" = "n" ] || [ "$vans" = "N" ]; then
+        log_warn "  ⚠  Без проверки: битый конфиг ляжет только на рестарте (crash-loop :443)"
+        genflag="--no-validate"
+      fi
+    fi
     printf "  ${CYAN}👉 Применить? [y/N]:${NC} "
     local ans
     pread -r ans || ans=""
@@ -1191,20 +1207,6 @@ cmd_apply() {
     shopt -u nullglob
   fi
   log_info "  ✅ sites.conf записан (бэкап: ${bd})"
-  # Вопрос валидации — через pread (единый PRESET_FD): ask_validate из menu.sh
-  # сидит на другом FD и при файловом вводе читал бы сначала.
-  local genflag=""
-  if [ "$novalidate" = true ]; then
-    genflag="--no-validate"
-  elif [ "$yes" != true ]; then
-    printf "  ${CYAN}👉 Проверить конфиг haproxy -c перед записью? [Y/n]:${NC} "
-    local vans
-    pread -r vans || vans=""
-    if [ "$vans" = "n" ] || [ "$vans" = "N" ]; then
-      log_warn "  ⚠  Без проверки: битый конфиг ляжет только на рестарте (crash-loop :443)"
-      genflag="--no-validate"
-    fi
-  fi
   # shellcheck disable=SC2086
   if ! generate_configs $genflag; then
     log_error "  ❌ Генерация не удалась — sites.conf новый, конфиги старые (откат: раздел 6 → бэкапы → ${bd##*/})"
