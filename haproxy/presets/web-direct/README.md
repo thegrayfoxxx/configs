@@ -33,9 +33,10 @@ flowchart LR
 
 1. **Привилегированный порт**: `:443` требует `user:root` для `haproxy-web` или `sysctl net.ipv4.ip_unprivileged_port_start=443`. Проверь `compose.yml`.
 2. **Порт `:80` свободен** на момент выпуска/продления (ACME `standalone --httpport 80`).
-3. **XHTTP-режим** (`WEB_MODE=xhttp-split`), контракт с Xray-инбаундом:
-   `sockopt.trustedXForwardedFor: ["X-Forwarded-For"]` ⟺ `option forwardfor` на `bk_xhttp` (ставится сам);
-   `xhttpSettings.path` ⟺ `XHTTP_PATH` (строго равно); инбаунд `security:none` на `127.0.0.1:<XHTTP_PORT>`.
+3. **XHTTP-режим** (`WEB_MODE=xhttp-split`), контракт с Xray-инбаундом (пути от корня JSON):
+   `inbounds[].streamSettings.sockopt.trustedXForwardedFor: ["X-Forwarded-For"]` ⟺ `option forwardfor`
+   на `bk_xhttp` (ставится сам); `inbounds[].streamSettings.xhttpSettings.path` ⟺ `XHTTP_PATH`
+   (строго равно); инбаунд `security:none`, `inbounds[].listen: "127.0.0.1"`, `inbounds[].port: <XHTTP_PORT>`.
    CDN: origin-pull на `:443`, `X-Forwarded-For` на origin, путь `/data/*` — Bypass Cache.
 4. Апгрейд «завтра нужен vision/reality» = переезд на `stream-vision` (смена bind + `svc_enable stream`) с даунтаймом — заложись заранее.
 

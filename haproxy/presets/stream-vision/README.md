@@ -41,22 +41,23 @@ flowchart LR
 
 | # | Нога | Шлет | Должен читать | Опции |
 |---|---|---|---|---|
-| 1 | `stream → xray:<XRAY_PORT>` | `send-proxy-v2` если `XRAY_PROXY=v2` (дефолт) | `tcpSettings.acceptProxyProtocol: true` в Xray | При `XRAY_PROXY=off` ничего включать не надо, но в логе Xray будет loopback |
-| 2 | `xray → web:8443` (reality-fallback) | `PROXY-v2` если `realitySettings.xver: 2` | `bind ... accept-proxy` = `WEB_ACCEPT_PROXY=on` (дефолт — **не выключать** при `xver: 2`) | Если в Xray `xver` нет/0 — можно `off`, но тогда и там и там |
+| 1 | `stream → xray:<XRAY_PORT>` | `send-proxy-v2` если `XRAY_PROXY=v2` (дефолт) | `inbounds[].streamSettings.tcpSettings.acceptProxyProtocol: true` в Xray | При `XRAY_PROXY=off` ничего включать не надо, но в логе Xray будет loopback |
+| 2 | `xray → web:8443` (reality-fallback) | `PROXY-v2` если `inbounds[].streamSettings.realitySettings.xver: 2` | `bind ... accept-proxy` = `WEB_ACCEPT_PROXY=on` (дефолт — **не выключать** при `xver: 2`) | Если в Xray `xver` нет/0 — можно `off`, но тогда и там и там |
 
 > ❌ Частая ошибка: выключить `WEB_ACCEPT_PROXY` при `xver: 2` в Xray —
 > весь fallback (браузеры без ключа) умрет. Генератор проверяет парность
 > только пары stream→web, связку xver→web видит только эта таблица — сверяй руками.
 
-Контракт «Xray-ключ ⟺ опция пресета» (проверено на проде):
+Контракт «Xray ⟺ HAProxy» (проверено на проде; пути Xray — от корня JSON конфига):
 
-| Xray-ключ | Пресет |
-|---|---|
-| `tcpSettings.acceptProxyProtocol: true` | `XRAY_PROXY=v2` |
-| `realitySettings.xver: 2` + `target: 127.0.0.1:8443` | `WEB_ACCEPT_PROXY=on` |
-| `realitySettings.serverNames/target` = stub-домен | `SELFSTEAL=yes`, `STUB_DOMAIN` = `REALITY_DOMAINS` |
-| `sockopt.trustedXForwardedFor: ["X-Forwarded-For"]` | `option forwardfor` на `bk_xhttp` (ставится сам при `WEB_MODE=xhttp-split`) |
-| `xhttpSettings.path` | `XHTTP_PATH` (строго равно, иначе 404/мимо) |
+| Xray (полный путь) | `sites.conf` (вопрос пресета) | Что сгенерируется |
+|---|---|---|
+| `inbounds[].streamSettings.tcpSettings.acceptProxyProtocol: true` (reality, `:10443`) | `STREAM_BACKENDS`: `name=xray ... proxy=v2` (`XRAY_PROXY=v2`) | `stream/haproxy.cfg`: `server xray 127.0.0.1:10443 send-proxy-v2` |
+| `inbounds[].streamSettings.realitySettings.xver: 2` (reality-fallback в `target`) | `GLOBAL_OPTS`: `web_accept_proxy=on` (`WEB_ACCEPT_PROXY=on`) | `web/haproxy.cfg`: `bind 127.0.0.1:8443 ssl ... accept-proxy` |
+| `inbounds[].streamSettings.realitySettings.target: "127.0.0.1:8443"` + `serverNames: ["<stub>"]` | `SELFSTEAL=yes`, `STUB_DOMAIN` = `REALITY_DOMAINS` | `STREAM_ROUTES`: `sni=<stub> use=xray`; `WEB_ROUTES`: `host=<stub> use=stub` |
+| `inbounds[].streamSettings.sockopt.trustedXForwardedFor: ["X-Forwarded-For"]` (xhttp, `:11443`) | само (`GLOBAL_OPTS` → `forwardfor_backends=bk_xhttp` при `WEB_MODE=xhttp-split`) | `web/haproxy.cfg`: `option forwardfor` в `backend bk_xhttp` |
+| `inbounds[].streamSettings.xhttpSettings.path: "/data/"` | `WEB_ROUTES`: `... use=xhttp path=...` (`XHTTP_PATH`, строго равно) | `web/haproxy.cfg`: `acl path_xhttp_* path_beg /data/` + `use_backend bk_xhttp` |
+| `inbounds[].port` / `inbounds[].listen` | `XRAY_PORT` / `XHTTP_PORT` + `STUB_PORT` | `server xray 127.0.0.1:<XRAY_PORT>`, `server xhttp 127.0.0.1:<XHTTP_PORT>` |
 
 Остальное:
 
@@ -64,8 +65,9 @@ flowchart LR
 2. XHTTP-инбаунд: `security:none`, слушает loopback `127.0.0.1:<XHTTP_PORT>`.
 3. CDN: origin-pull на `:443` (SNI = XHTTP-домен), `X-Forwarded-For` на origin, `/data/*` — Bypass Cache.
 4. Порт `:80` свободен для ACME.
-5. Затяни `listen` Xray-инбаундов за haproxy на `127.0.0.1` (сейчас часто стоит `0.0.0.0` —
-   порты `10443/11443` торчат наружу без нужды, CDN и клиенты туда ходить не должны).
+5. Затяни `inbounds[].listen` Xray-инбаундов за haproxy на `"127.0.0.1"` (часто стоит
+   `"0.0.0.0"` — порты `inbounds[].port` (`10443`/`11443`) торчат наружу без нужды,
+   CDN и клиенты туда ходить не должны).
 
 ## Проверки после применения
 

@@ -25,10 +25,11 @@ flowchart LR
 
 ## Требования со стороны Xray (важно!)
 
-1. Inbound: `bind *:443`, `serverNames=[STUB_DOMAIN]`, `target=127.0.0.1:8443`
+1. Inbound: `inbounds[].listen: "*"` (`:443`), `inbounds[].streamSettings.realitySettings.serverNames=[STUB_DOMAIN]`,
+   `inbounds[].streamSettings.realitySettings.target=127.0.0.1:8443`
    (raw TCP fallback, SNI сохраняется — web отдаст правильный серт).
 2. PROXY на ноге fallback: визард спрашивает `WEB_ACCEPT_PROXY`.
-   Правило: значение = `xver` в `realitySettings` твоего инбаунда —
+   Правило: значение = `inbounds[].streamSettings.realitySettings.xver` твоего инбаунда —
    `xver: 2` → отвечай `on`, нет `xver` (0) → `off`.
    > ❌ Рассинхрон (Xray шлет `xver`, а web без `accept-proxy` — или наоборот)
    > роняет весь fallback: браузеры без ключа перестанут открываться.
