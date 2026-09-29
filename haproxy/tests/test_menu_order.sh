@@ -84,14 +84,22 @@ EOF
   || { printf "  FAIL: структура секций\n"; fail=1; }
 
 # Дым: главное меню показывает пункт ? и выходит по 0 (однократный ввод).
+# Герметично: свой HAPROXY_DIR с конфигами новее sites.conf (без вопроса ensure_configs).
+SMOKE="$(mktemp -d)"
+mkdir -p "$SMOKE/stream" "$SMOKE/web" "$SMOKE/custom"
+cp "$PROJ/tests/fixtures/sites6-web-direct.conf" "$SMOKE/sites.conf"
+cp "$PROJ/tests/fixtures/expected6-web-direct-stream.cfg" "$SMOKE/stream/haproxy.cfg"
+cp "$PROJ/tests/fixtures/expected6-web-direct-web.cfg" "$SMOKE/web/haproxy.cfg"
+touch "$SMOKE/stream/haproxy.cfg" "$SMOKE/web/haproxy.cfg"
 printf '0\n' > ${TEST_TMP:-/tmp}/menu-order-tty
-if MENU_TTY=${TEST_TMP:-/tmp}/menu-order-tty timeout 10 bash "$PROJ/haproxy.sh" < /dev/null > ${TEST_TMP:-/tmp}/menu-order-out.txt 2>&1; then
+if MENU_TTY=${TEST_TMP:-/tmp}/menu-order-tty HAPROXY_DIR_OVERRIDE="$SMOKE" timeout 10 bash "$PROJ/haproxy.sh" < /dev/null > ${TEST_TMP:-/tmp}/menu-order-out.txt 2>&1; then
   grep -q '❓ Шпаргалка' ${TEST_TMP:-/tmp}/menu-order-out.txt \
     && printf "  ok: пункт ? отображается, выход по 0 работает\n" \
     || { printf "  FAIL: нет пункта ?\n"; fail=1; }
 else
   printf "  FAIL: меню не вышло по 0\n"; fail=1
 fi
+rm -rf "$SMOKE"
 rm -f ${TEST_TMP:-/tmp}/menu-order-tty ${TEST_TMP:-/tmp}/menu-order-out.txt
 
 exit "$fail"

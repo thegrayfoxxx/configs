@@ -112,4 +112,20 @@ grep -q '"host=a.com to=127.0.0.1:8080"' "$PK/out4.txt" \
   && printf "  ok: apply без имени берет номер и флаги\n" \
   || { printf "  FAIL: apply без имени\n"; fail=1; }
 
+# Потери цифрами + снос SNI только по ДА (кейс stream-vision -> xray-direct).
+WP="$TMP/wipe"
+mkdir -p "$WP/stream" "$WP/web" "$WP/custom"
+cp "$PROJ/tests/fixtures/sites6-stream-selfsteal.conf" "$WP/sites.conf"
+cp "$PROJ/tests/fixtures/expected6-stream-selfsteal-stream.cfg" "$WP/stream/haproxy.cfg"
+cp "$PROJ/tests/fixtures/expected6-stream-selfsteal-web.cfg" "$WP/web/haproxy.cfg"
+# Ответы xray-direct (дефолты), затем: 1 (затереть), ДА (снос), y (применить), n (без up).
+printf '%s\n' 't@e.com' 'drop.example.com' '8080' 'deny' 'off' 'off' 'sites-50s' 'off' 'off' '1' 'ДА' 'y' 'n' > "$WP/tty-in"
+timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply xray-direct > "$1/session.log" 2>&1' _ "$WP" "$PROJ" \
+  || { printf "  FAIL: apply со сносом упал/вис\n"; fail=1; }
+grep -q 'ВНИМАНИЕ' "$WP/session.log" \
+  && grep -q 'Пункт \[0\]' "$WP/session.log" \
+  && ! grep -q 'sni=drop.example.com' "$WP/sites.conf" \
+  && printf "  ok: цифры + ДА-гейт со сносом работают\n" \
+  || { printf "  FAIL: цифры/ДА-гейт\n"; fail=1; }
+
 exit "$fail"

@@ -310,7 +310,7 @@ ensure_configs() {
     printf "  ${GREEN}1.${NC} Сгенерировать\n"
     printf "  ${RED}2.${NC} Пропустить\n\n"
     printf "${CYAN}👉 Пункт:${NC} "
-    read -r gen_choice < /dev/tty
+    read -r gen_choice < /dev/tty || gen_choice=""
     if [ "$gen_choice" = "1" ]; then
       generate_configs
     fi
@@ -328,7 +328,7 @@ ensure_configs() {
       printf "  ${GREEN}1.${NC} Перегенерировать\n"
       printf "  ${RED}2.${NC} Пропустить\n\n"
       printf "${CYAN}👉 Пункт:${NC} "
-      read -r regen_choice < /dev/tty
+      read -r regen_choice < /dev/tty || regen_choice=""
       if [ "$regen_choice" = "1" ]; then
         generate_configs
       fi
@@ -695,24 +695,57 @@ rollback_backup() {
 }
 
 # --- ВАЛИДАЦИЯ КОНФИГОВ (волна 1) ---
-# Проверяет haproxy-конфиг. Возврат: 0 ок, 1 битый конфиг / нет haproxy для проверки.
-# Fail-closed: без бинарника генерация НЕ пишет файлы (иначе битый конфиг попал бы
-# в прод молча). Обход только явный: HAPROXY_NO_VALIDATE=1 (тесты/CI без haproxy).
+# Проверяет haproxy-конфиг. Возврат: 0 ок, 1 битый конфиг / нечем проверить.
+# Fail-closed: непроверенный конфиг НЕ пишется в прод. Порядок: локальный бинарник,
+# затем docker exec в соответствующий запущенный контейнер (та же версия, что в проде),
+# иначе ошибка. Обход только явный: HAPROXY_NO_VALIDATE=1 (тесты/CI без haproxy и docker).
 validate_cfg() {
-  local file="$1"
-  if ! command -v haproxy >/dev/null 2>&1; then
-    if [ -n "${HAPROXY_NO_VALIDATE:-}" ]; then
-      log_warn "  ⚠  haproxy не найден (HAPROXY_NO_VALIDATE=1) — пропускаю валидацию ${file}"
+  local file="$1" want="${2:-}"
+  if command -v haproxy >/dev/null 2>&1; then
+    if haproxy -c -V -f "$file" >/dev/null 2>&1; then
       return 0
     fi
-    log_error "  ❌ haproxy не найден — не могу проверить ${file} (обход: HAPROXY_NO_VALIDATE=1)"
+    log_error "  ❌ Битый конфиг: ${file}"
+    haproxy -c -V -f "$file" 2>&1 | head -20 || true
     return 1
   fi
-  if haproxy -c -V -f "$file" >/dev/null 2>&1; then
+  # Бинарника нет (типичный хост: haproxy только в контейнерах) — пробуем docker.
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    if [ -z "$want" ]; then
+      case "$file" in
+        */stream/*) want="haproxy-stream" ;;
+        */web/*) want="haproxy-web" ;;
+      esac
+    fi
+    local running
+    running=$(docker ps --format '{{.Names}}' 2>/dev/null || true)
+    local cname=""
+    if [ -n "$want" ] && echo "$running" | grep -qx "$want"; then
+      cname="$want"
+    else
+      # Подойдет любой запущенный haproxy-* (версия та же, проверяется только синтаксис).
+      cname=$(printf "%s\n" "$running" | grep -m1 '^haproxy-' || true)
+    fi
+    if [ -n "$cname" ]; then
+      local remote="/tmp/haproxy-validate.cfg"
+      if docker cp "$file" "${cname}:${remote}" >/dev/null 2>&1 \
+        && docker exec "$cname" haproxy -c -V -f "$remote" >/dev/null 2>&1; then
+        docker exec "$cname" rm -f "$remote" >/dev/null 2>&1 || true
+        return 0
+      fi
+      docker exec "$cname" rm -f "$remote" >/dev/null 2>&1 || true
+      log_error "  ❌ Битый конфиг: ${file} (проверено в ${cname})"
+      docker cp "$file" "${cname}:${remote}" >/dev/null 2>&1 \
+        && docker exec "$cname" haproxy -c -V -f "$remote" 2>&1 | head -20 || true
+      docker exec "$cname" rm -f "$remote" >/dev/null 2>&1 || true
+      return 1
+    fi
+  fi
+  if [ -n "${HAPROXY_NO_VALIDATE:-}" ]; then
+    log_warn "  ⚠  Нечем проверить ${file} (HAPROXY_NO_VALIDATE=1) — пропускаю валидацию"
     return 0
   fi
-  log_error "  ❌ Битый конфиг: ${file}"
-  haproxy -c -V -f "$file" 2>&1 | head -20 || true
+  log_error "  ❌ Нечем проверить ${file}: нет ни бинарника haproxy, ни запущенного контейнера (обход: HAPROXY_NO_VALIDATE=1)"
   return 1
 }
 
@@ -738,6 +771,17 @@ validate_host() {
     return 1
   fi
   return 0
+}
+
+# validate_email <мыло> — строгий формат (только латиница/цифры, иначе ACME
+# молча примет битый контакт вроде кириллицы).
+validate_email() {
+  local mail="$1"
+  if [[ "$mail" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+    return 0
+  fi
+  log_error "  ❌ Некорректный email: '${mail}' (жди user@example.com латиницей)" >&2
+  return 1
 }
 
 # --- СЕРВИСЫ: профили compose (волна 1) ---
@@ -3238,12 +3282,12 @@ generate_configs() {
     return 1
   fi
 
-  if ! validate_cfg "$tmp_stream"; then
+  if ! validate_cfg "$tmp_stream" "haproxy-stream"; then
     log_error "  ❌ stream-конфиг не прошёл валидацию (старый файл не тронут)"
     return 1
   fi
 
-  if ! validate_cfg "$tmp_web"; then
+  if ! validate_cfg "$tmp_web" "haproxy-web"; then
     log_error "  ❌ web-конфиг не прошёл валидацию (старый файл не тронут)"
     return 1
   fi
@@ -3261,6 +3305,8 @@ generate_configs() {
 # Волна 2: предпросмотр — что изменит перегенерация, не трогая живые файлы.
 # Возврат: 0 — различий нет, 1 — есть различия (показывает diff),
 # 2 — ошибка (битый sites.conf/генерация; diff не показан).
+# ВАЖНО: 1 при любом числе различающихся файлов (раньше возвращалось их число
+# и diff обоих файлов маскировался под ошибку).
 preview_configs() {
   if [ ! -f "$SITES_CONF" ]; then
     log_error "❌ sites.conf не найден"
@@ -3304,5 +3350,8 @@ preview_configs() {
       printf "  ${GREEN}= %s: без изменений${NC}\n" "$name"
     fi
   done
-  return "$diffs"
+  if [ "$diffs" -gt 0 ]; then
+    return 1
+  fi
+  return 0
 }

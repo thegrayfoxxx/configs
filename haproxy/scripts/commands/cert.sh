@@ -102,7 +102,7 @@ issue_cert() {
   if [ -z "${ACME_EMAIL:-}" ]; then
     printf "  ${CYAN}👉 Email:${NC} "
     read -r ACME_EMAIL < /dev/tty
-    [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return; }
+    validate_email "$ACME_EMAIL" || return
   fi
 
   require_port_free 80 "standalone-выпуск слушает :80" || return
@@ -155,7 +155,7 @@ issue_and_deploy() {
   if [ -z "${ACME_EMAIL:-}" ]; then
     printf "  ${CYAN}👉 Email:${NC} "
     read -r ACME_EMAIL < /dev/tty
-    [ -z "$ACME_EMAIL" ] && { log_error "❌ Email не может быть пустым"; return; }
+    validate_email "$ACME_EMAIL" || return
   fi
 
   require_port_free 80 "standalone-выпуск слушает :80" || return
@@ -308,8 +308,8 @@ cert_issue_domain() {
   local domain="$1"
   validate_domain "$domain" || return 1
   load_sites
-  if [ -z "${ACME_EMAIL:-}" ]; then
-    log_error "❌ ACME_EMAIL пуст (задай в sites.conf)"
+  if ! validate_email "${ACME_EMAIL:-}" 2>/dev/null; then
+    log_error "❌ ACME_EMAIL пуст или бит (задай в sites.conf латиницей)"
     return 1
   fi
   require_port_free 80 "standalone-выпуск слушает :80" || return 1

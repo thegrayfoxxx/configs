@@ -348,6 +348,12 @@ EOF
   else
     printf "  ok: path без / отклонён\n"
   fi
+  printf 'ACME_EMAIL=сcool@example.com\nWEB_MODE=sites\nSITES_LINES=a.com:8080\nBLACKHOLE=deny\nTIMEOUT_PROFILE=sites-50s\nBACKEND_CHECK=off\nLOGS_CAPTURE=off\n' > "$TMP/answers3"
+  if HAPROXY_DIR_OVERRIDE="$PROJ" bash "$PROJ/scripts/preset.sh" apply web-direct --dry-run --answers "$TMP/answers3" >/dev/null 2>&1; then
+    printf "  FAIL: кириллица в email принята\n"; fail=1
+  else
+    printf "  ok: кириллица в email отклонена\n"
+  fi
   trap - EXIT
   rm -rf "$TMP"
 }

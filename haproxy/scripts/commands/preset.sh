@@ -137,7 +137,7 @@ ask() { # ask VAR "промпт" "дефолт" валидатор -> печат
         if validate_port "$ans" "порт" 2>/dev/null; then printf "%s" "$ans"; return 0; fi
         ;;
       email)
-        if [[ "$ans" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then printf "%s" "$ans"; return 0; else log_error "  ❌ Введи корректный email"; fi
+        if validate_email "$ans" 2>/dev/null; then printf "%s" "$ans"; return 0; else log_error "  ❌ Введи корректный email"; fi
         ;;
       bind)
         # host:порт (звёздочка-хост для *:443 разрешена).
@@ -324,7 +324,7 @@ collect() {
           any | nonempty) [ -n "${PGIVEN[$var]}" ] || { log_error "  ❌ Пустое ${var} в answers"; return 1; } ;;
           domain) validate_domain "${PGIVEN[$var]}" 2>/dev/null || return 1 ;;
           port) validate_port "${PGIVEN[$var]}" "порт" 2>/dev/null || return 1 ;;
-          email) [[ "${PGIVEN[$var]}" =~ ^[^@]+@[^@]+\.[^@]+$ ]] || { log_error "  ❌ Битый email в answers"; return 1; } ;;
+          email) validate_email "${PGIVEN[$var]}" 2>/dev/null || { log_error "  ❌ Битый email в answers"; return 1; } ;;
           bind) [[ "${PGIVEN[$var]}" =~ ^[^:]+:[0-9]+$ ]] && validate_port "${PGIVEN[$var]##*:}" "порт" 2>/dev/null || return 1 ;;
           snis)
             local _d _di
@@ -679,6 +679,60 @@ _print_lost() {
   fi
 }
 
+# preset_wipes_stream <rendered-file> — новый конфиг сносит ВСЕ SNI-маршруты, а были.
+# Возврат 0 = снос (требует отдельного явного подтверждения), 1 = все спокойно.
+# Срабатывает ровно в кейсе «stream-vision -> xray-direct поверх»: молча умерли бы
+# vision-ветка, таймауты и forwardfor. Проверяются только не-default SNI.
+preset_wipes_stream() {
+  local rendered="$1"
+  [ -f "$SITES_CONF" ] || return 1
+  local -a s_sr=(${STREAM_ROUTES[@]+"${STREAM_ROUTES[@]}"})
+  local -a s_wr=(${WEB_ROUTES[@]+"${WEB_ROUTES[@]}"})
+  local -a s_bes=(${STREAM_BACKENDS[@]+"${STREAM_BACKENDS[@]}"}) s_bew=(${WEB_BACKENDS[@]+"${WEB_BACKENDS[@]}"})
+  local -a s_fes=(${STREAM_FRONTENDS[@]+"${STREAM_FRONTENDS[@]}"}) s_few=(${WEB_FRONTENDS[@]+"${WEB_FRONTENDS[@]}"})
+  local -a s_opts=(${GLOBAL_OPTS[@]+"${GLOBAL_OPTS[@]}"})
+  local s_mail="${ACME_EMAIL:-}"
+  local cur_n=0 new_n=0
+  STREAM_ROUTES=()
+  WEB_ROUTES=()
+  STREAM_BACKENDS=()
+  WEB_BACKENDS=()
+  STREAM_FRONTENDS=()
+  WEB_FRONTENDS=()
+  GLOBAL_OPTS=()
+  if ! source_sites_file "$SITES_CONF" 2>/dev/null; then
+    STREAM_ROUTES=(${s_sr[@]+"${s_sr[@]}"})
+    return 1
+  fi
+  local e
+  for e in ${STREAM_ROUTES[@]+"${STREAM_ROUTES[@]}"}; do
+    parse_stream_route "$e" 2>/dev/null || continue
+    [ "$S3_SNI" != "default" ] && cur_n=$((cur_n + 1))
+  done
+  STREAM_ROUTES=()
+  if ! source_sites_file "$rendered" 2>/dev/null; then
+    STREAM_ROUTES=(${s_sr[@]+"${s_sr[@]}"})
+    WEB_ROUTES=(${s_wr[@]+"${s_wr[@]}"})
+    return 1
+  fi
+  for e in ${STREAM_ROUTES[@]+"${STREAM_ROUTES[@]}"}; do
+    parse_stream_route "$e" 2>/dev/null || continue
+    [ "$S3_SNI" != "default" ] && new_n=$((new_n + 1))
+  done
+  STREAM_ROUTES=(${s_sr[@]+"${s_sr[@]}"})
+  WEB_ROUTES=(${s_wr[@]+"${s_wr[@]}"})
+  STREAM_BACKENDS=(${s_bes[@]+"${s_bes[@]}"})
+  WEB_BACKENDS=(${s_bew[@]+"${s_bew[@]}"})
+  STREAM_FRONTENDS=(${s_fes[@]+"${s_fes[@]}"})
+  WEB_FRONTENDS=(${s_few[@]+"${s_few[@]}"})
+  GLOBAL_OPTS=(${s_opts[@]+"${s_opts[@]}"})
+  ACME_EMAIL="$s_mail"
+  if [ "$cur_n" -gt 0 ] && [ "$new_n" -eq 0 ]; then
+    return 0
+  fi
+  return 1
+}
+
 # preset_losses <rendered-file> — что исчезнет из текущего sites.conf при записи.
 # Сравнение по именам (фронтенды/ящики) и по полному тексту (маршруты),
 # плюс email/глобальные опции целиком. Печатает отчёт.
@@ -703,7 +757,7 @@ preset_losses() {
   local -a s_fe_s=("${STREAM_FRONTENDS[@]}") s_fe_w=("${WEB_FRONTENDS[@]}")
   local -a s_be_s=("${STREAM_BACKENDS[@]}") s_be_w=("${WEB_BACKENDS[@]}")
   local -a s_sr=("${STREAM_ROUTES[@]}") s_wr=("${WEB_ROUTES[@]}")
-  local -a s_opts=("${GLOBAL_OPTS[@]}")
+  local -a s_opts=(${GLOBAL_OPTS[@]+"${GLOBAL_OPTS[@]}"})
   local s_mail="$c_mail"
   STREAM_FRONTENDS=()
   WEB_FRONTENDS=()
@@ -1072,12 +1126,15 @@ cmd_apply() {
     elif [ "$yes" = true ]; then
       die "  ❌ Есть потери, а --yes запрещает спрашивать: убери --yes (выбор вручную) или добавь --merge"
     else
-      printf "  ${CYAN}👉 [з]атереть / [с]лить с текущим / [о]тмена (по умолчанию):${NC} "
+      printf "  ${GREEN}1.${NC} Затереть текущее пресетом\n"
+      printf "  ${GREEN}2.${NC} Слить с текущим (общее скипается, конфликты — ошибка)\n"
+      printf "  ${RED}0.${NC} Отмена\n"
+      printf "  ${CYAN}👉 Пункт [0]:${NC} "
       local how
       pread -r how || how=""
       case "$how" in
-        з|З|z|Z) mode="overwrite" ;;
-        с|С|s|S) mode="merge" ;;
+        1|з|З|z|Z) mode="overwrite" ;;
+        2|с|С|s|S) mode="merge" ;;
         *) log_info "Отмена"; return 0 ;;
       esac
     fi
@@ -1095,6 +1152,14 @@ cmd_apply() {
     fi
   fi
   if [ "$mode" = "overwrite" ] && [ "$yes" != true ]; then
+    if preset_wipes_stream "$tmp_render"; then
+      printf "  ${RED}❌ ВНИМАНИЕ: новый конфиг сносит ВСЕ SNI-маршруты stream (vision-ветка,${NC}\n"
+      printf "  ${RED}   таймауты, forwardfor — см. diff выше. Для подтверждения введи ДА:${NC} "
+      local wipe
+      pread -r wipe || wipe=""
+      if [ "$wipe" != "ДА" ]; then log_info "Отмена (живые файлы не тронуты)"; return 0; fi
+      printf "\n"
+    fi
     printf "  ${CYAN}👉 Применить? [y/N]:${NC} "
     local ans
     pread -r ans || ans=""

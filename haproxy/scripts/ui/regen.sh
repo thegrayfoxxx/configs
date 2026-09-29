@@ -20,6 +20,25 @@ cmd_regen() {
   elif [ "$rc" -eq 2 ]; then
     log_error "❌ Предпросмотр не удался — чиним sites.conf и повторяем"
   else
+    # Детектор сноса: живые SNI-правила есть, а в новых нет (кейс stream-vision
+    # поверх xray-direct и наоборот) — требуем явное ДА вместо y.
+    local live_stream="${HAPROXY_DIR}/stream/haproxy.cfg"
+    if grep -q 'req\.ssl_sni -i' "$live_stream" 2>/dev/null; then
+      local tmpd
+      tmpd=$(mktemp -d)
+      if generate_stream_config > "$tmpd/stream.cfg" 2>/dev/null \
+        && ! grep -q 'req\.ssl_sni -i' "$tmpd/stream.cfg" 2>/dev/null; then
+        printf "  ${RED}❌ ВНИМАНИЕ: новая генерация сносит ВСЕ SNI-правила stream (см. diff выше).${NC}\n"
+        printf "  ${RED}   Для подтверждения введи ДА:${NC} "
+        local wipe
+        tread -r wipe || wipe=""
+        rm -rf "$tmpd"
+        if [ "$wipe" != "ДА" ]; then log_info "Отмена (живые файлы не тронуты)"; menu_pause; return 0; fi
+        printf "\n"
+      else
+        rm -rf "$tmpd"
+      fi
+    fi
     printf "\n"
     if menu_confirm "Применить показанный diff? [y/N]:"; then
       generate_configs
