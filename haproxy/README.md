@@ -11,11 +11,13 @@ TLS-прокси для маршрутизации трафика по SNI с а
 - [Структура](#структура)
 - [Быстрый старт](#быстрый-старт)
 - [Главное меню](#главное-меню)
-- [Управление сайтами](#управление-сайтами)
-- [Управление Reality](#управление-reality)
+- [Управление Stream](#управление-stream)
+- [Управление Web](#управление-web)
+- [Фронтенды](#фронтенды)
+- [Бэкенды](#бэкенды)
 - [Управление сертификатами](#управление-сертификатами)
 - [Пресеты](#пресеты)
-- [Формат sites.conf v2](#формат-sitesconf-v2)
+- [Формат sites.conf v3](#формат-sitesconf-v3)
 - [Кастомные вставки](#кастомные-вставки)
 - [Бэкапы и откат](#бэкапы-и-откат)
 - [Конфигурация](#конфигурация)
@@ -38,8 +40,8 @@ TLS-прокси для маршрутизации трафика по SNI с а
 flowchart TB
     CLIENT["Клиент:443"] --> STREAM["haproxy-stream<br/>L4, SNI inspection"]
 
-    STREAM -->|SNI = reality| XRAY["xray<br/>127.0.0.1:10443"]
-    STREAM -->|SNI ≠ reality| WEB["haproxy-web<br/>127.0.0.1:8443<br/>SSL termination"]
+    STREAM -->|SNI = sni-1| BK1["Backend sni-1<br/>127.0.0.1:10443"]
+    STREAM -->|SNI = default| WEB["haproxy-web<br/>127.0.0.1:8443<br/>SSL termination"]
 
     WEB -->|domain1.com| BE1["Backend 1<br/>127.0.0.1:8080"]
     WEB -->|domain2.com| BE2["Backend 2<br/>127.0.0.1:9090"]
@@ -66,9 +68,9 @@ flowchart TB
 
 1. **Скачивание** — получить конфиги из репозитория
 2. **Подготовка** — настроить порты (root в контейнере или sysctl)
-3. **Запуск** — `./haproxy.sh` интерактивно создаст `sites.conf`
-4. **Сайты** — добавить веб-сайты через меню
-5. **Reality** — добавить домены для xray
+3. **Запуск** — `./haproxy.sh` интерактивно создаст `sites.conf` (v3)
+4. **Stream** — добавить SNI-маршруты через меню (раздел 1)
+5. **Web** — добавить Host-маршруты через меню (раздел 2)
 6. **Сертификаты** — выпустить и задеплоить
 
 ---
@@ -95,11 +97,10 @@ cd configs/haproxy
 
 ```
 haproxy/
-├── haproxy.sh                    # главное меню (п.1-13)
+├── haproxy.sh                    # тонкий диспетчер главного меню (1-6)
 ├── compose.yml                   # Docker Compose: stream + web + acme (profiles + log-лимиты)
-├── sites.conf                    # конфигурация (генерируется скриптами, не в git)
-├── sites.conf.example            # шаблон v1
-├── sites.conf.v2.example         # шаблон v2 с комментариями ко всем опциям
+├── sites.conf                    # конфигурация v3 (генерируется скриптами, не в git)
+├── sites.conf.example            # шаблон v3 с комментариями ко всем опциям
 ├── .enabled_services             # включённые профили (не в git)
 ├── .backup/                      # ротация бэкапов (не в git)
 ├── custom/                       # твои вставки *.cfg (переживают регенерацию, не в git)
@@ -107,10 +108,11 @@ haproxy/
 │   ├── stream-backend-*.cfg      # -> конец stream-бэкендов
 │   ├── web-frontend-*.cfg        # -> конец frontend ft_https_terminated
 │   └── web-backend-*.cfg         # -> конец web-бэкендов
-├── presets/                      # библиотека сценариев (в git)
+├── presets/                      # библиотека сценариев (в git, тут живет конкретика xray/reality)
 │   ├── reality-selfsteal/        # SNI в xray + web-заглушка + PROXY-пара
 │   ├── xhttp-path-split/         # домен: /data/ -> Xray, остальное в stub + CDN-заметки
-│   └── multi-site-l7/            # пачка сайтов + blackhole
+│   ├── multi-site-l7/            # пачка сайтов + blackhole
+│   └── twin-frontends/           # два stream-уха (public+internal) + один web
 ├── stream/
 │   ├── haproxy.cfg               # генерируется из sites.conf
 │   └── haproxy.cfg.example       # шаблон
@@ -121,16 +123,24 @@ haproxy/
 ├── tests/                        # bash-тесты: bash -n, golden, юниты (запуск: bash tests/run.sh)
 │   └── fixtures/                 # эталоны и фикстуры
 └── scripts/
-    ├── lib/common.sh             # общая библиотека (цвета, генерация, хелперы)
-    ├── site.sh                   # управление сайтами
-    ├── reality.sh                # управление reality
-    ├── cert.sh                   # управление сертификатами
-    ├── services.sh               # юниты сервисов + init
-    ├── backups.sh                # бэкапы и откат
-    ├── init.sh                   # чистый старт (сервисы → конфиг → up)
-    ├── migrate.sh                # миграция sites.conf v1 → v2
-    ├── preset.sh                 # движок пресетов (list/show/apply/diff/new)
-    └── update.sh                 # обновление из репозитория (с бэкапом)
+    ├── ui/                       # presentation-слой: меню, статус, логи, regen, validate
+    │   ├── menu.sh               # реестр-helpers: TTY-ввод, подтверждения, диспетчер
+    │   ├── status.sh             # статус + рестарт всех
+    │   ├── logs.sh               # подменю логов stream/web/acme
+    │   ├── regen.sh              # перегенерация с diff-превью
+    │   └── validate.sh           # проверка haproxy -c
+    ├── commands/                 # доменные команды (по одной ответственности)
+    │   ├── stream.sh             # SNI-маршруты + фронтенды + ящики stream (без xray)
+    │   ├── web.sh                # Host-маршруты + фронтенды + ящики web + предложение серта
+    │   ├── cert.sh               # сертификаты (+ --issue/--deploy/--remove для скриптов)
+    │   ├── services.sh           # юниты сервисов + init
+    │   ├── backups.sh            # бэкапы и откат
+    │   ├── init.sh               # чистый старт (сервисы → конфиг → up)
+    │   ├── migrate.sh            # миграция sites.conf v1/v2 → v3
+    │   ├── preset.sh             # движок пресетов (list/show/apply/diff/new)
+    │   └── update.sh             # обновление из репозитория по allowlist (с бэкапом)
+    ├── *.sh                      # тонкие шимы в commands/ (cert/services/backups/migrate/preset/update/init)
+    └── lib/common.sh             # ядро: парсеры v3, генераторы, docker/svc, бэкапы, валидация
 ```
 
 ---
@@ -145,16 +155,19 @@ cd haproxy
 ```
 
 При первом запуске:
-1. Если `sites.conf` нет — интерактивный опрос (email, reality, сайты)
+1. Если `sites.conf` нет — интерактивный опрос (email, stream-маршруты, web-маршруты)
 2. Если конфигов HAProxy нет — автоматическая генерация
 3. Если `sites.conf` новее конфигов — предложение перегенерировать
 
 Ввод `0` или пустая строка = отмена/назад во всех меню.
+Ввод `?` в любом меню = шпаргалка по форматам.
+Удаление всегда спрашивает подтверждение с именем; добавление показывает
+итог перед записью. Перед каждой записью — автобэкап в `.backup/`.
 
-### Шаг 2 — добавь сайт
+### Шаг 2 — добавь web-маршрут
 
 ```
-1 → Ввести домен и порт бэкенда
+2 → Ввести домен и бэкенд (порт или host:порт)
 ```
 
 Скрипт автоматически:
@@ -163,16 +176,19 @@ cd haproxy
 3. Предложит выпустить сертификат
 4. Предложит перезапустить сервисы
 
-### Шаг 3 — добавь reality
+### Шаг 3 — добавь stream-маршрут
 
 ```
-2 → Ввести домены через пробел и порт xray
+1 → Ввести SNI через пробел, backend host:порт, PROXY и имя
 ```
 
 Скрипт автоматически:
 1. Обновит `sites.conf`
 2. Сгенерирует конфиги
 3. Предложит перезапустить сервисы
+
+> Нужен xray/reality-сценарий целиком? Раздел 4 меню → пресет `reality-selfsteal`
+> (конкретика живет в пресетах, ядро нейтрально).
 
 ---
 
@@ -184,17 +200,18 @@ cd haproxy
 cp sites.conf.example sites.conf
 ```
 
-Отредактируй `sites.conf`:
+Отредактируй `sites.conf` (формат v3, см. [Формат sites.conf v3](#формат-sitesconf-v3)):
 
 ```bash
 ACME_EMAIL="mailname@example.com"
 
-WEB_SITES=(
-  "site1.com:11443"
+STREAM_ROUTES=(
+  "sni=vpn.example.com to=127.0.0.1:10443 proxy=off name=sni-1"
+  "sni=default to=127.0.0.1:8443 proxy=off name=web"
 )
 
-REALITY_SITES=(
-  "google.com www.google.com:10443"
+WEB_ROUTES=(
+  "host=site1.com to=127.0.0.1:8080"
 )
 ```
 
@@ -249,7 +266,7 @@ docker restart haproxy-web
 ┌─────────────────────────────────────────────┐
 │  Сервисы: ● stream  ● web  ● acme
 │  Профили: stream web acme
-│  Конфиг:  2 сайтов  1 reality
+│  Конфиг:  2 stream  1 web
 │  Custom:  2 файлов
 │  HAProxy:  ок
 │  Серты:   3
@@ -259,7 +276,8 @@ docker restart haproxy-web
 | Индикатор | Значение |
 |-----------|----------|
 | `● stream / web / acme` | Зелёный = запущен, красный = остановлен |
-| `Сайтов / reality` | Количество из `sites.conf` |
+| `stream / web` | Количество маршрутов из `sites.conf` |
+| `Фронтенды` | Строка появляется, если заданы `*_FRONTENDS`: количество фронтендов |
 | `Профили` | Включённые сервисы (`.enabled_services`) для `docker compose --profile` |
 | `Custom` | Сколько `custom/*.cfg` подклеится при генерации |
 | `HAProxy: ок` | Конфиги синхронизированы |
@@ -271,23 +289,16 @@ docker restart haproxy-web
 
 | Пункт | Действие |
 |-------|----------|
-| `1` | Управление сайтами |
-| `2` | Управление Reality |
-| `3` | Управление сертификатами |
-| `4` | Статус сервисов |
-| `5` | Перезапустить все сервисы |
-| `6` | Логи |
-| `7` | Обновить конфиги из репозитория |
-| `8` | Перегенерировать конфиги HAProxy (с diff-превью и подтверждением) |
-| `9` | Сервисы: вкл/выкл/рестарт/логи по каждому + init с нуля |
-| `10` | Бэкапы и откат (`.backup/`, ротация 10) |
-| `11` | Проверить конфиги (`haproxy -c`) |
-| `12` | Миграция `sites.conf` v1 → v2 |
-| `13` | Пресеты (готовые сценарии: list/show/apply/diff/new) |
+| `1` | Stream: маршруты, фронтенды, бэкенды (SNI → backend) |
+| `2` | Web: маршруты, фронтенды, бэкенды (Host → backend) |
+| `3` | Сертификаты: выпустить/деплой/проверить/удалить |
+| `4` | Пресеты (готовые сценарии: list/show/apply/diff/new) |
+| `5` | Сервисы и логи: статус, рестарт всех, логи, вкл/выкл/рестарт по каждому + init |
+| `6` | Конфиги и бэкапы: перегенерация с diff, `haproxy -c`, миграция → v3, обновление, откат |
 
 ---
 
-## Управление сайтами
+## Управление Stream
 
 ```bash
 ./haproxy.sh → пункт 1
@@ -295,35 +306,73 @@ docker restart haproxy-web
 
 | Пункт | Действие |
 |-------|----------|
-| `1` | Добавить сайт |
-| `2` | Удалить сайт |
-| `3` | Список сайтов |
+| `1` | Маршруты (добавить/изменить/удалить/список, см. ниже) |
+| `2` | Фронтенды (добавить/изменить/удалить/список) |
+| `3` | Бэкенды (добавить/изменить/удалить/список) |
 | `0` | Назад |
 
-### Добавление сайта
+В шапке секции — компактный статус: число маршрутов, фронтендов и бэкендов
+(как статус-бокс главного меню, но по одному сервису).
+
+### Маршруты Stream
+
+Таблица маршрутов показана в шапке подменю и обновляется при каждом возврате.
+
+| Пункт | Действие |
+|-------|----------|
+| `1` | Добавить маршрут |
+| `2` | Изменить маршрут (все поля с дефолтами, итог перед записью) |
+| `3` | Удалить маршрут (с подтверждением) |
+| `0` | Назад |
+
+### Добавление маршрута
 
 Скрипт спросит:
-1. **Домен** — например, `example.com`
-2. **Порт бэкенда** — куда проксировать (например, `8080`)
+1. **SNI через пробел** — например, `vpn.example.com`
+2. **Бэкенд** — номер существующего ящика (раздел «Бэкенды») или `0` = новый адрес
+3. Для нового адреса: **host:порт**, **PROXY** (`off`/`v1`/`v2`), **имя**, **логи** (`on`/`off`)
+4. **Фронтенд** — имя из раздела «Фронтенды» (Enter = все; спрашивается, только если фронтенды заданы)
+
+Настройки `proxy`/`log` живут на ящике: у ссылки `use=` их спрашивать нечего.
+
+Запись `sni=default` (дефолт в web-терминацию) создается автоматически
+и здесь не правится — только показ в списке.
 
 После добавления:
 - Обновляется `sites.conf`
 - Генерируются `stream/haproxy.cfg` и `web/haproxy.cfg`
-- Предлагается выпустить сертификат
 - Предлагается перезапустить сервисы
+
+### Изменение маршрута (пункт 2)
+
+Выбор из списка (включая `sni=default` — у него правится только backend),
+далее подменю «что меняем»: SNI / Backend / PROXY / Имя / Логи / Фронтенд.
+Текущие значения видны сразу, пустые поля у ссылок помечены. `0` — итог
+было/стало с подтверждением; без изменений ничего не пишется. Очистить
+область — ввести `-` в пункте Фронтенд. Имена фронтендов/ящиков неизменны
+(на них ссылаются).
 
 ### Формат записи в sites.conf
 
 ```bash
-WEB_SITES=(
-  "domain.com:8080"
-  "api.example.com:9090"
+STREAM_BACKENDS=(
+  "name=vpn to=127.0.0.1:10443"
+  "name=metrics to=127.0.0.1:9090 log=off"  # тихий backend (no log)
+)
+STREAM_ROUTES=(
+  "sni=vpn.example.com use=vpn"
+  "sni=a.com b.com to=127.0.0.1:10444 proxy=v2 name=sni-2"  # инлайн без ящика
+  "sni=default to=127.0.0.1:8443 proxy=off name=web"  # обязателен (см. разрешение ниже)
+)
+STREAM_FRONTENDS=(
+  "name=public bind=*:443"
+  "name=internal bind=127.0.0.1:4443 log=off"
 )
 ```
 
 ---
 
-## Управление Reality
+## Управление Web
 
 ```bash
 ./haproxy.sh → пункт 2
@@ -331,24 +380,122 @@ WEB_SITES=(
 
 | Пункт | Действие |
 |-------|----------|
-| `1` | Добавить reality |
-| `2` | Удалить reality |
-| `3` | Список reality |
+| `1` | Маршруты (добавить/изменить/удалить/список, см. ниже) |
+| `2` | Фронтенды (добавить/изменить/удалить/список) |
+| `3` | Бэкенды (добавить/изменить/удалить/список) |
 | `0` | Назад |
 
-### Добавление reality
+В шапке секции — компактный статус: число маршрутов, фронтендов и бэкендов.
+
+### Маршруты Web
+
+Таблица маршрутов показана в шапке подменю и обновляется при каждом возврате.
+
+| Пункт | Действие |
+|-------|----------|
+| `1` | Добавить маршрут |
+| `2` | Изменить маршрут (все поля с дефолтами, итог перед записью) |
+| `3` | Удалить маршрут (с подтверждением) |
+| `0` | Назад |
+
+### Добавление маршрута
 
 Скрипт спросит:
-1. **Домены через пробел** — например, `google.com www.google.com`
-2. **Порт xray** — по умолчанию `10443`
+1. **Домен** — например, `example.com`
+2. **Бэкенд** — номер существующего ящика (раздел «Бэкенды») или `0` = новый адрес (порт или host:порт)
+3. **Path-префикс** — опционально (например, `/data/` — правило выше общего)
+4. Для нового адреса: **логи** (`on`/`off`)
+5. **Фронтенд** — имя из раздела «Фронтенды» (Enter = все; спрашивается, только если фронтенды заданы)
+
+После добавления:
+- Обновляется `sites.conf`
+- Генерируются конфиги
+- Предлагается выпустить сертификат и перезапустить сервисы
+
+### Изменение маршрута (пункт 2)
+
+Выбор из списка, далее подменю «что меняем»: Домен / Backend / Path /
+Логи / Фронтенд. Текущие значения видны сразу; у ссылок `use=` поля
+ящика помечены прочерком. `0` — итог было/стало с подтверждением;
+без изменений ничего не пишется. Очистить path/область — ввести `-`.
+Ящик переключается выбором из списка, адрес — переписывается.
 
 ### Формат записи в sites.conf
 
 ```bash
-REALITY_SITES=(
-  "google.com www.google.com:10443"
+WEB_BACKENDS=(
+  "name=app to=127.0.0.1:8080 log=off"  # тихий backend (no log)
+)
+WEB_ROUTES=(
+  "host=domain.com use=app"
+  "host=api.example.com to=127.0.0.1:9090"  # инлайн без ящика
 )
 ```
+
+---
+
+## Фронтенды
+
+Именованные «уши»: каждый слушает свой `bind`, у каждого свои SNI/Host-правила.
+Маршрут с `frontend=<имя>` виден только там; без ключа — везде.
+Пустые массивы = одиночный режим как раньше (фронтенд из `bind_stream`/`bind_web`).
+
+```bash
+STREAM_FRONTENDS=(
+  "name=public bind=*:443"
+  "name=internal bind=127.0.0.1:4443 log=off"
+)
+WEB_FRONTENDS=(
+  "name=main bind=127.0.0.1:8443"
+)
+```
+
+Правила:
+- `sni=default` резолвится на фронтенд: свой (с `frontend=<имя>`) важнее
+  глобального (без ключа); нет ни одного — генерация падает
+- бэкенды общие между фронтендами (печатаются один раз)
+- `bind_stream`/`bind_web` при непустых массивах игнорируются; при создании
+  первого фронтенда через меню текущий bind авто-импортируется как `name=main`
+- удалить фронтенд, на который ссылаются маршруты, нельзя (скрипт их перечислит)
+- кастомные вставки `*-frontend-*.cfg` подклеиваются в **каждый** фронтенд
+- дефолт тоже правится: пункт «Изменить» при пустых массивах предлагает
+  создать явный `main` из текущего bind и сразу его правит (было/стало,
+  валидация, save — как обычно)
+
+Управление: разделы Stream/Web → пункт «Фронтенды» (добавить/изменить/удалить/список).
+Готовый сценарий: пресет `twin-frontends` (раздел 4 меню).
+
+---
+
+## Бэкенды
+
+Именованные «ящики»: адрес и флаги живут в одном месте, маршруты ссылаются
+через `use=<имя>` (можно несколько маршрутов в один ящик). Без ящиков
+маршруты несут адрес инлайн через `to=` (анонимный ящик, как раньше).
+
+```bash
+STREAM_BACKENDS=(
+  "name=vpn to=127.0.0.1:10443 proxy=off log=on"
+)
+WEB_BACKENDS=(
+  "name=app to=127.0.0.1:8080 log=off"
+)
+```
+
+Правила:
+- в маршруте ровно один из `to=`/`use=`; при `use=` ключи `name`/`proxy`/`log`
+  запрещены (живут на ящике) — генерация падает
+- ссылка в несуществующий ящик — генерация падает (трафик в никуда недопустим)
+- удалить занятый ящик нельзя (скрипт перечислит ссылающиеся маршруты)
+- висячий ящик (без маршрутов) — варнинг, секция печатается, трафика нет
+- имена ящиков/маршрутов/дефолтов не должны пересекаться (иначе секции задвоятся)
+- `forwardfor_backends` ссылается на `bk_<имя>` — с ящиками имена предсказуемы
+
+Управление: разделы Stream/Web → пункт «Бэкенды» (добавить/изменить/удалить/список
+со счетчиком маршрутов); при добавлении маршрута — выбор ящика списком
+или новый адрес. Имя ящика неизменно (на него ссылаются маршруты) —
+остальное правится на месте с показом было/стало и числом затронутых маршрутов.
+Готовые сценарии: пресеты `reality-selfsteal`, `xhttp-path-split` (раздел 4 меню).
 
 ---
 
@@ -373,9 +520,17 @@ REALITY_SITES=(
 
 При выпуске сертификата (пункты 1 и 3) можно:
 - **Ввести домен вручную**
-- **Выбрать из списка добавленных сайтов** (если сайты уже есть в HAProxy web)
+- **Выбрать из списка хостов** web-маршрутов (если маршруты уже есть)
 
 Ввод `0` или пустая строка = отмена.
+
+Неинтерактивно (для скриптов, вызывается из `web.sh` автоматически):
+
+```bash
+./scripts/commands/cert.sh --issue example.com
+./scripts/commands/cert.sh --deploy example.com
+./scripts/commands/cert.sh --remove example.com
+```
 
 ### Деплой в HAProxy
 
@@ -396,32 +551,37 @@ acme.sh обновляет сертификаты каждые 30 дней. По
 
 ## Конфигурация
 
-### sites.conf
+### sites.conf (v3)
 
 Единственный источник правды. Конфиги HAProxy генерируются из него автоматически.
 
 ```bash
 ACME_EMAIL="mailname@example.com"
 
-# Сайты (L7, SSL termination через haproxy-web)
-WEB_SITES=(
-  "site1.com:11443"
-  "example.com:8080"
+# Stream-маршруты (L4, SNI -> backend). Запись sni=default обязательна.
+STREAM_ROUTES=(
+  "sni=vpn.example.com to=127.0.0.1:10443 proxy=off name=sni-1"
+  "sni=default to=127.0.0.1:8443 proxy=off name=web"
 )
 
-# Reality (L4, напрямую на xray)
-REALITY_SITES=(
-  "google.com www.google.com:10443"
+# Web-маршруты (L7, Host -> backend за терминацией)
+WEB_ROUTES=(
+  "host=site1.com to=127.0.0.1:8080"
+  "host=example.com to=127.0.0.1:9090"
 )
 ```
+
+Файлы v1/v2 читаются (автоконверсия в памяти), но `save` всегда пишет v3.
+Миграция файла: раздел 6 меню → миграция, подробнее — `MIGRATION.md`.
 
 ### Генерация конфигов
 
 Конфиги генерируются автоматически при:
-- Добавлении/удалении сайтов
-- Добавлении/удалении reality
+- Добавлении/удалении stream-маршрутов
+- Добавлении/удалении web-маршрутов
+- Применении пресета
 - Первом запуске (интерактивная настройка)
-- Ручной перегенерации (пункт 8 в меню)
+- Ручной перегенерации (раздел 6 в меню, с diff-превью)
 
 Также проверяется синхронизация: если `sites.conf` новее конфигов, скрипт предложит перегенерировать.
 
@@ -443,18 +603,18 @@ frontend ft_https
     tcp-request inspect-delay 5s
     tcp-request content accept if { req.ssl_hello_type 1 }
 
-    acl is_reality req.ssl_sni -i google.com www.google.com
-    use_backend bk_xray if is_reality
+    acl is_s_1 req.ssl_sni -i vpn.example.com
+    use_backend bk_sni-1 if is_s_1
 
-    default_backend bk_haproxy_web
+    default_backend bk_web
 
-backend bk_xray
+backend bk_sni-1
     mode tcp
-    server xray 127.0.0.1:10443
+    server sni-1 127.0.0.1:10443
 
-backend bk_haproxy_web
+backend bk_web
     mode tcp
-    server haproxy_web 127.0.0.1:8443
+    server web 127.0.0.1:8443
 ```
 
 ### Пример сгенерированного web/haproxy.cfg
@@ -468,14 +628,14 @@ frontend ft_https_terminated
     bind *:8443 ssl crt /etc/haproxy/certs/
     mode http
 
-    acl host_site_com_com hdr(host) -i site.com
-    use_backend bk_site_com_com if host_site_com_com
+    acl host_site_site_com hdr(host) -i site.com
+    use_backend bk_site_site_com if host_site_site_com
 
     default_backend bk_blackhole
 
-backend bk_site_com_com
+backend bk_site_site_com
     mode http
-    server site_com_com 127.0.0.1:8080
+    server site_site_com 127.0.0.1:8080
 
 backend bk_blackhole
     mode http
@@ -514,10 +674,23 @@ backend bk_blackhole
 | `ensure_sites_conf()` | Проверка наличия `sites.conf`, интерактивное создание |
 | `ensure_configs()` | Проверка синхронизации конфигов с `sites.conf` |
 | `interactive_setup()` | Интерактивный опрос для создания `sites.conf` |
-| `load_sites()` / `save_sites()` | Чтение/запись `sites.conf` |
+| `load_sites()` / `save_sites()` | Чтение (v1/v2/v3 с автоконверсией) / запись (всегда v3) `sites.conf` |
+| `legacy_to_v3_arrays()` | In-memory миграция legacy-массивов в v3 |
+| `parse_stream_route()` / `parse_web_route()` | Строгий разбор v3-записей (fail-closed) |
+| `parse_frontend()` / `parse_stream_backend()` / `parse_web_backend()` | Разбор именованных фронтендов и ящиков |
+| `validate_frontends kind` / `validate_backend_refs kind` | Уникальность имен; ссылки `use=` резолвятся (висячие ящики — варнинг) |
+| `resolve_stream_backend()` / `resolve_web_backend()` | Lookup ящика по имени (`to/proxy/log`) |
+| `frontend_add/remove/exists/refs` / `backend_add/remove/exists/refs` | CRUD сущностей для команд (ссылки/дубли проверяются) |
+| `acl_name_for()` | Уникальные имена ACL (`_2` при коллизии — haproxy затирает дубли) |
+| `maybe_forwardfor()` | `option forwardfor` точечно по `forwardfor_backends` |
+| `convert_legacy_to_v3()` | Печать v3-эквивалента legacy-массивов (для migrate) |
+| `ensure_stream_default()` | Дописать `sni=default`, если его нет |
 | `generate_configs()` | Генерация `stream/haproxy.cfg` и `web/haproxy.cfg` |
-| `generate_stream_config()` | Генерация L4-конфига (SNI routing) |
-| `generate_web_config()` | Генерация L7-конфига (SSL termination) |
+| `generate_stream_config()` | Генерация L4-конфига (легаси v1/v2; v3-ветка если заданы `STREAM_ROUTES`) |
+| `generate_web_config()` | Генерация L7-конфига (легаси v1/v2; v3-ветка если заданы `WEB_ROUTES`) |
+
+Слои: `scripts/ui/` — presentation (меню/статус/логи), `scripts/commands/` —
+доменные команды, `scripts/lib/common.sh` — ядро без UI-зависимостей.
 
 ---
 
@@ -526,21 +699,29 @@ backend bk_blackhole
 Через главное меню:
 
 ```bash
-./haproxy.sh → пункт 7
+./haproxy.sh → раздел 6 → обновление
 ```
 
-Скачивает свежие файлы из репозитория и обновляет скрипты.
+Скачивает свежие файлы из репозитория по allowlist (код/шаблоны/доки)
+и обновляет скрипты. Локальное состояние (`sites.conf`, `.enabled_services`,
+`.backup/`, живые конфиги, `web/certs/`, `custom/*.cfg`) никогда не затирается.
 
 Напрямую:
 
 ```bash
-cd scripts
-./update.sh
+./scripts/commands/update.sh
 ```
 
 ---
 
 ## Переменные окружения
+
+### Интерфейс
+
+| Переменная | Описание |
+|---|---|
+| `NO_COLOR` | Непустая = выключить цвета (стандарт no-color.org) |
+| `HAPROXY_NO_CLEAR` | Непустая = не чистить экран (сохраняет скроллбэк, удобно по SSH) |
 
 ### compose.yml
 
@@ -554,8 +735,11 @@ cd scripts
 | Переменная | Описание | Пример |
 |---|---|---|
 | `ACME_EMAIL` | Email для сертификатов | `mail@example.com` |
-| `WEB_SITES` | Массив сайтов (домен:порт) | `"site.com:8080"` |
-| `REALITY_SITES` | Массив reality (домены:порт) | `"google.com:10443"` |
+| `STREAM_ROUTES` | SNI-маршруты (`sni/to|use/proxy/name/log/frontend`, один `sni=default` обязателен) | `"sni=vpn.example.com use=vpn"` |
+| `WEB_ROUTES` | Host-маршруты (`host/to|use/path/name/log/frontend`) | `"host=site.com use=app"` |
+| `STREAM_BACKENDS` | Именованные L4-ящики (`name/to/proxy/log`) | `"name=vpn to=127.0.0.1:10443"` |
+| `WEB_BACKENDS` | Именованные L7-ящики (`name/to/log`) | `"name=app to=127.0.0.1:8080"` |
+| `STREAM_FRONTENDS` / `WEB_FRONTENDS` | Именованные уши (`name/bind/log`), пусто = одиночный режим | `"name=public bind=*:443"` |
 
 ---
 
@@ -573,38 +757,66 @@ cd scripts
 Готовые сценарии в `presets/<имя>/`: `preset.conf` (шаблон `sites.conf` с `{{VAR}}`),
 `questions` (вопросы визарда `VAR|промпт|дефолт|валидатор`), `README.md`, `custom/` (оверлей).
 
+Валидаторы визарда: `any`, `nonempty`, `domain`, `port`, `email`, `bind`
+(`host:порт`), `snis` (домены через пробел), `hostport` (порт или `host:порт`),
+`path` (с `/`), `oneof:a,b` (строго из списка), `list:domainport`, `list:hostport`.
+Мусор отклоняется сразу в визарде (и в `--answers`), а не на генерации.
+
 ```bash
-./haproxy.sh → пункт 13
+./haproxy.sh → раздел 4
 # или напрямую:
-./scripts/preset.sh list                  # список
-./scripts/preset.sh show xhttp-path-split # README + вопросы
-./scripts/preset.sh apply xhttp-path-split        # визард → diff → запись → generate
-./scripts/preset.sh apply multi-site-l7 --dry-run --answers ans.txt  # без записи
-./scripts/preset.sh diff reality-selfsteal        # дефолты vs текущий sites.conf
-./scripts/preset.sh new my-preset                 # скелет своего пресета
+./scripts/commands/preset.sh list                  # список
+./scripts/commands/preset.sh show xhttp-path-split # README + вопросы
+./scripts/commands/preset.sh apply xhttp-path-split        # визард → diff → потери → запись → generate
+./scripts/commands/preset.sh apply multi-site-l7 --dry-run --answers ans.txt  # только конфиг на stdout
+./scripts/commands/preset.sh apply multi-site-l7 --merge --yes --answers ans.txt  # слить с текущим без вопросов
+./scripts/commands/preset.sh diff reality-selfsteal        # дефолты vs текущий sites.conf
+./scripts/commands/preset.sh new my-preset                 # скелет своего пресета (v3)
 ```
+
+Применение поверх существующего конфига: скрипт показывает diff, затем —
+что именно исчезнет (фронтенды/ящики/маршруты/email/опции). Дальше на выбор:
+**[з]атереть** (как раньше, с бэкапом `pre-preset-*`), **[с]лить** (общее
+скипается, конфликт имен/содержимого — ошибка, файл цел) или **отмена**.
+`--yes` при потерях без `--merge` — отказ (нужно явное решение).
+При слиянии email и глобальные опции остаются текущие (варнинг).
+
+`--dry-run` печатает только готовый конфиг (без шапки) — вывод можно
+перенаправлять в файл. Неинтерактивный ввод визарда — через файл:
+`PRESET_TTY=ответы.txt` (по строке на вопрос, пустая строка = дефолт/готово).
 
 Встроенные: `reality-selfsteal` (SNI в xray + web-заглушка + PROXY-пара),
 `xhttp-path-split` (домен: `/data/` в Xray, остальное в stub + CDN-заметки),
-`multi-site-l7` (пачка сайтов + blackhole). Детали, требования к xray/CDN
+`multi-site-l7` (пачка сайтов + blackhole),
+`twin-frontends` (два stream-уха public/internal + один web). Детали, требования к xray/CDN
 и проверки — в `presets/<имя>/README.md`.
 
 ---
 
-## Формат sites.conf v2
+## Формат sites.conf v3
 
-v1-записи работают как раньше (обратная совместимость побайтово проверена
-тестами). Новое в v2:
+Ядро нейтрально: stream = SNI-маршруты, web = Host-маршруты. Никаких
+`reality/xray` в скриптах и формате — конкретика живет только в пресетах.
+Файлы v1/v2 читаются (автоконверсия в памяти, семантика сохраняется —
+проверено e2e-тестом миграции), запись всегда v3.
 
 ```bash
-WEB_SITES=(
-  "site.com:8080"                      # как v1
-  "x.com:11443:path=/data/"            # path-правило (выше общего!)
-  "x.com:8080"                         # общее правило того же домена
+STREAM_BACKENDS=(
+  "name=vpn to=127.0.0.1:10443"
+  "name=metrics to=127.0.0.1:9090 log=off"  # тихий backend (no log)
 )
-REALITY_SITES=(
-  "a.com:10443"                        # свой backend bk_xray_1
-  "b.com:10444:proxy=v2"               # свой backend + send-proxy-v2
+WEB_BACKENDS=(
+  "name=app to=127.0.0.1:8080"
+)
+STREAM_ROUTES=(
+  "sni=vpn.example.com use=vpn"              # ссылка на ящик
+  "sni=a.com b.com to=127.0.0.1:10444 proxy=v2 name=sni-2"  # инлайн без ящика
+  "sni=default to=127.0.0.1:8443 proxy=off name=web"  # обязателен (см. разрешение)
+)
+WEB_ROUTES=(
+  "host=site.com use=app"
+  "host=x.com to=127.0.0.1:11443 path=/data/"  # path-правило (выше общего!)
+  "host=x.com to=127.0.0.1:8080"               # общее правило того же домена
 )
 GLOBAL_OPTS=(
   "timeout_client=1h" "timeout_server=1h" "timeout_tunnel=1h"
@@ -619,8 +831,19 @@ GLOBAL_OPTS=(
 )
 ```
 
-Все ключи с комментариями — в `sites.conf.v2.example`. Миграция v1→v2:
-п.12 меню (`migrate.sh`, есть `--dry-run`). Подробнее — `MIGRATION.md`.
+Валидация строгая (fail-closed): нет резолвящегося `sni=default` на фронтенд,
+битый `proxy`/`log`, неизвестный ключ/`frontend=`/`use=`, маршрут без адреса
+(`to=` xor `use=`), `name`/`proxy`/`log` при `use=`, ссылка в несуществующий
+ящик, дубли имен внутри вида (ящики/инлайн/default между собой; stream и web —
+разные неймспейсы) — генерация падает,
+живые файлы не тронуты. Разрешение default: свой (с областью фронтенда)
+важнее глобального. Висячий ящик (без маршрутов) — варнинг, не ошибка.
+Нюанс инлайн-web: один backend на пару (домен, порт), поэтому `no log`
+ставится, только если **все** его записи с `log=off` (у именованных ящиков
+флаг один — правило не нужно).
+
+Все ключи с комментариями — в `sites.conf.example`. Миграция v1/v2→v3:
+раздел 6 меню (`migrate.sh`, есть `--dry-run`). Подробнее — `MIGRATION.md`.
 
 ---
 
@@ -631,9 +854,9 @@ GLOBAL_OPTS=(
 
 | Маска | Куда подклеивается |
 |---|---|
-| `stream-frontend-*.cfg` | конец `frontend ft_https` (stream) |
+| `stream-frontend-*.cfg` | конец каждого `frontend ft_*` (stream; в multi — в каждый) |
 | `stream-backend-*.cfg` | конец stream-бэкендов |
-| `web-frontend-*.cfg` | конец `frontend ft_https_terminated` (web) |
+| `web-frontend-*.cfg` | конец каждого `frontend ft_*` (web; в multi — в каждый) |
 | `web-backend-*.cfg` | конец web-бэкендов |
 
 Правило: всё, что умеет `sites.conf`/пресеты — туда; `custom/` — только то,
@@ -645,8 +868,8 @@ GLOBAL_OPTS=(
 
 Перед каждым `save`/`generate`/миграцией/обновлением — снимок `sites.conf`
 и обоих `haproxy.cfg` в `.backup/<дата>-<причина>/` (ротация: последние 10).
-Откат: п.10 меню (список → выбор → `pre-rollback`-бэкап текущего),
-после отката — перезапустить сервисы (п.5). Генерация идёт через temp-файлы
+Откат: раздел 6 меню (список → выбор → `pre-rollback`-бэкап текущего),
+после отката — перезапустить сервисы (раздел 5). Генерация идёт через temp-файлы
 с `haproxy -c` и атомарным перемещением: битый конфиг в прод не попадает.
 
 ---
@@ -659,5 +882,8 @@ bash tests/run.sh   # bash -n по всем скриптам, golden-тесты 
 
 Golden: фикстуры `tests/fixtures/sites*.conf` → эталоны `expected*.cfg`
 (v1 — байт-в-байт со старым генератором, v2 — multi-backend/path/PROXY,
-v3 — deny_status/checks/accept-proxy, v4 — SNI-лог/capture/forwardfor).
+v3 — нейтральные маршруты + явный default + fail-closed,
+v4 — SNI-лог/capture/forwardfor,
+v4fe — именованные фронтенды + области,
+v5be — именованные ящики + ссылки use=).
 `shellcheck` подхватывается автоматически, если установлен.
