@@ -22,6 +22,7 @@
 flowchart LR
     CLIENT["Клиент:443"] --> STREAM["stream/ft_https<br/>SNI"]
     STREAM -->|SNI = reality| XRAY["bk_xray<br/>Xray vision"]
+    XRAY -.->|fallback/target → 127.0.0.1:8443<br/>+ PROXY v2 при xver| WEB
     STREAM -->|sni=default| WEB["web/ft_https_terminated<br/>127.0.0.1:8443"]
     WEB -->|Host stub| STUB["bk_stub"]
     WEB -->|Host xhttp + /data/*| XHTTP["bk_xhttp<br/>+forwardfor"]
