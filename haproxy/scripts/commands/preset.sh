@@ -887,7 +887,7 @@ _canon_web_route() {
 
 _canon_frontend() {
   parse_frontend "$1" 2>/dev/null || return 1
-  printf "name=%s|bind=%s|log=%s" "$F_NAME" "$F_BIND" "$F_LOG"
+  printf "name=%s|bind=%s|accept_proxy=%s|log=%s" "$F_NAME" "$F_BIND" "$F_ACCEPT" "$F_LOG"
 }
 
 _canon_stream_be() {

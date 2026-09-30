@@ -642,7 +642,12 @@ fe_add() {
   tread -r fe_log
   [ -z "$fe_log" ] && fe_log="on"
 
-  frontend_add stream "$fe_name" "$fe_bind" "$fe_log" || return
+  printf "  ${CYAN}👉 Принимать ТОЛЬКО PROXY (транзит между серверами, on — закрыть файрволом!) [off]:${NC} "
+  local fe_accept
+  tread -r fe_accept
+  [ -z "$fe_accept" ] && fe_accept="off"
+
+  frontend_add stream "$fe_name" "$fe_bind" "$fe_log" "$fe_accept" || return
 
   if ! validate_all; then
     log_error "❌ Проверка не пройдена — файл не тронут"
@@ -697,10 +702,10 @@ fe_edit() {
     return
   fi
   parse_frontend "${STREAM_FRONTENDS[$idx]}" || return 1
-  local o_bind="$F_BIND" o_log="$F_LOG"
+  local o_bind="$F_BIND" o_log="$F_LOG" o_accept="$F_ACCEPT"
 
   # Рабочая копия + picker.
-  local fe_bind="$o_bind" fe_log="$o_log"
+  local fe_bind="$o_bind" fe_log="$o_log" fe_accept="$o_accept"
 
   while true; do
     clear_screen
@@ -708,9 +713,11 @@ fe_edit() {
     printf "  ${CYAN}Имя:${NC}       %s (неизменно)\n" "$fe_name"
     printf "  ${CYAN}Bind:${NC}      %s\n" "$fe_bind"
     printf "  ${CYAN}Логи:${NC}      %s\n" "$fe_log"
+    printf "  ${CYAN}PROXY:${NC}     %s\n" "$fe_accept"
     printf "\n"
     printf "  ${GREEN}1.${NC} Bind\n"
     printf "  ${GREEN}2.${NC} Логи\n"
+    printf "  ${GREEN}3.${NC} PROXY-прием (accept-proxy, транзит — закрыть файрволом!)\n"
     printf "  ${GREEN}0.${NC} Готово, применить\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
@@ -734,6 +741,14 @@ fe_edit() {
           *) log_error "❌ Жди on/off"; sleep 1; continue ;;
         esac
         ;;
+      3)
+        fe_accept=$(ask_default "PROXY-прием (accept-proxy off/on)" "$fe_accept")
+        case "$fe_accept" in
+          on) log_warn "  ⚠  Только PROXY-соединения! Прямые клиенты умрут — доверенный адрес + файрвол." ;;
+          off) ;;
+          *) log_error "❌ Жди off/on"; sleep 1; continue ;;
+        esac
+        ;;
       0) break ;;
       ?) print_cheatsheet || true ;;
       *) menu_invalid; continue ;;
@@ -741,6 +756,7 @@ fe_edit() {
   done
 
   local rec="name=${fe_name} bind=${fe_bind}"
+  [ "$fe_accept" = "on" ] && rec="${rec} accept_proxy=on"
   [ "$fe_log" = "off" ] && rec="${rec} log=off"
   if [ "$rec" = "${STREAM_FRONTENDS[$idx]}" ]; then
     log_info "Без изменений — ничего не записано"

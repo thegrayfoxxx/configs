@@ -18,7 +18,10 @@
 #   WEB_BACKENDS:    "name=<метка> to=<host:порт>[ log=on|off]"
 #     - именованные ящики; маршруты ссылаются через use= (можно несколько маршрутов в один)
 #     - удаление занятого ящика запрещено; висячий ящик — варнинг
-#   STREAM_FRONTENDS / WEB_FRONTENDS: "name=<метка> bind=<host:порт>[ log=on|off]"
+#   STREAM_FRONTENDS / WEB_FRONTENDS: "name=<метка> bind=<host:порт>[ accept_proxy=off|on][ log=on|off]"
+#     - accept_proxy (только stream): ухо принимает ТОЛЬКО PROXY (транзит между
+#       серверами) — прямые клиенты умрут; доверенный адрес + файрвол (spoofing!).
+#     - пусто = один фронтенд из bind_* (как раньше)
 #     - пусто = один фронтенд из bind_stream/bind_web (как раньше)
 #     - первый созданный фронтенд тянет авто-импорт текущего bind_* как name=main
 #   GLOBAL_OPTS:   "ключ=значение" (все ключи ниже с комментариями)
@@ -30,6 +33,7 @@ ACME_EMAIL="mailname@example.com"
 # STREAM_FRONTENDS=(
 #   "name=public bind=*:443"
 #   "name=internal bind=127.0.0.1:4443 log=off"
+#   "name=transit bind=*:4443 accept_proxy=on"  # транзит с PROXY (см. пресет stream-vision)
 # )
 # WEB_FRONTENDS=(
 #   "name=main bind=127.0.0.1:8443"

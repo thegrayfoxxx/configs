@@ -1039,6 +1039,19 @@ ff_list() {
   printf "%s" "${ff//[[:space:]]/}"
 }
 
+# check_proxy_sfx <proxy> <check_sfx> — суффикс server-строки для healthcheck-ов.
+# Чек в PROXY-цель (acceptProxyProtocol/xver-сторона) шлется тоже с PROXY,
+# иначе голый чек умрет и ящик вечно flagged down: backend_check=tcp вкупе
+# с proxy=v1/v2 дает `check ... check-send-proxy`. При proxy=off — как было.
+check_proxy_sfx() {
+  local _proxy="$1" _chk="$2"
+  if [ -n "$_chk" ] && [ "$_proxy" != "off" ]; then
+    printf "%s check-send-proxy" "$_chk"
+  else
+    printf "%s" "$_chk"
+  fi
+}
+
 # maybe_forwardfor <тег> — печатает "    option forwardfor", если bk_<тег>
 # перечислен в forwardfor_backends (иначе ничего).
 maybe_forwardfor() {
@@ -1337,13 +1350,16 @@ sanitize_name() {
 }
 
 # --- ФРОНТЕНДЫ (именованные уши: name + bind, маршруты привязываются через frontend=) ---
-# Формат: "name=<метка> bind=<host:порт>[ log=on|off]"
+# Формат: "name=<метка> bind=<host:порт>[ accept_proxy=off|on][ log=on|off]"
+# accept_proxy=on: ухо принимает ТОЛЬКО соединения с PROXY-заголовком (транзит
+# между серверами) — прямые клиенты умрут; вешать на доверенный адрес + файрвол.
 # Пустые массивы = поведение как раньше (один фронтенд из bind_stream/bind_web).
-# Результат — в F_NAME/F_BIND/F_LOG. Возврат 1 = битая запись (fail-closed).
+# Результат — в F_NAME/F_BIND/F_ACCEPT/F_LOG. Возврат 1 = битая запись (fail-closed).
 parse_frontend() {
   local entry="$1"
   F_NAME=""
   F_BIND=""
+  F_ACCEPT="off"
   F_LOG="on"
   local tok key val seen_keys=""
   # Без glob: read -ra сплитит как for, но не раскрывает */? в имена файлов.
@@ -1370,9 +1386,10 @@ parse_frontend() {
     case "$key" in
       name) F_NAME="$val" ;;
       bind) F_BIND="$val" ;;
+      accept_proxy) F_ACCEPT="$val" ;;
       log) F_LOG="$val" ;;
       *)
-        log_error "  ❌ Неизвестный ключ '${key}' во фронтенде: '${entry}' (жди name/bind/log)" >&2
+        log_error "  ❌ Неизвестный ключ '${key}' во фронтенде: '${entry}' (жди name/bind/accept_proxy/log)" >&2
         return 1
         ;;
     esac
@@ -1393,6 +1410,13 @@ parse_frontend() {
   fi
   validate_host "$_h" "хост фронтенда" >&2 || return 1
   validate_port "$_p" "порт фронтенда" >&2 || return 1
+  case "$F_ACCEPT" in
+    off | on) ;;
+    *)
+      log_error "  ❌ accept_proxy: жди off/on, получил '${F_ACCEPT}'" >&2
+      return 1
+      ;;
+  esac
   case "$F_LOG" in
     on | off) ;;
     *)
@@ -1782,8 +1806,17 @@ materialize_default_frontend() {
 # При создании первого фронтенда вида текущий bind_* авто-импортируется
 # как name=main (старые ключи после этого игнорируются генератором).
 frontend_add() {
-  local kind="$1" name="$2" bind="$3" flog="${4:-on}"
+  local kind="$1" name="$2" bind="$3" flog="${4:-on}" accept="${5:-off}"
+  case "$accept" in
+    off | on) ;;
+    *) log_error "❌ accept_proxy: жди off/on"; return 1 ;;
+  esac
+  if [ "$accept" = "on" ] && [ "$kind" != "stream" ]; then
+    log_error "❌ accept_proxy — только для stream-фронтендов (у web — глобальный web_accept_proxy)"
+    return 1
+  fi
   local rec="name=${name} bind=${bind}"
+  [ "$accept" = "on" ] && rec="${rec} accept_proxy=on"
   [ "$flog" = "off" ] && rec="${rec} log=off"
   parse_frontend "$rec" || return 1
   if frontend_exists "$kind" "$name"; then
@@ -2026,6 +2059,10 @@ generate_stream_v3() {
     for fe in "${STREAM_FRONTENDS[@]}"; do
       parse_frontend "$fe" || return 1
       fe_names+=("$F_NAME")
+      if [ "$F_ACCEPT" = "on" ]; then
+        # В stderr: stdout генератора пишется в файл конфига.
+        log_warn "  ⚠  Stream-фронтенд '${F_NAME}' принимает ТОЛЬКО PROXY (accept-proxy): прямые клиенты умрут, вешай на доверенный адрес + файрвол."
+      fi
     done
   fi
   local i scope found
@@ -2209,7 +2246,7 @@ EOF
     printf "backend bk_%s\n" "$(sanitize_name "$B_NAME")"
     printf "    mode tcp\n"
     [ "$B_LOG" = "off" ] && printf "    no log\n"
-    printf "    server %s %s%s%s\n" "$(sanitize_name "$B_NAME")" "$B_TO" "$bproxy_line" "$check_sfx"
+    printf "    server %s %s%s%s\n" "$(sanitize_name "$B_NAME")" "$B_TO" "$bproxy_line" "$(check_proxy_sfx "$B_PROXY" "$check_sfx")"
     printf "\n"
   done
 
@@ -2227,7 +2264,7 @@ EOF
     printf "backend %s\n" "$bk"
     printf "    mode tcp\n"
     [ "${v_log[i]}" = "off" ] && printf "    no log\n"
-    printf "    server %s %s%s%s\n" "${v_name[i]}" "${v_to[i]}" "$proxy_line" "$check_sfx"
+    printf "    server %s %s%s%s\n" "${v_name[i]}" "${v_to[i]}" "$proxy_line" "$(check_proxy_sfx "${v_proxy[i]}" "$check_sfx")"
     printf "\n"
   done
 
@@ -2236,7 +2273,7 @@ EOF
     printf "backend bk_%s\n" "$(sanitize_name "$def_name")"
     printf "    mode tcp\n"
     [ "$def_log" = "off" ] && printf "    no log\n"
-    printf "    server %s %s%s%s\n" "$(sanitize_name "$def_name")" "$def_to" "$def_sfx" "$check_sfx"
+    printf "    server %s %s%s%s\n" "$(sanitize_name "$def_name")" "$def_to" "$def_sfx" "$(check_proxy_sfx "$def_proxy" "$check_sfx")"
   fi
   emit_custom "stream-backend-*.cfg"
 }
@@ -2266,11 +2303,12 @@ EOF
 
   # Резолв default на фронтенд: свой (scope=имя) важнее глобального (scope="").
   # Возвращает индекс в d_* через REPLY. 0 записей или >1 своей = ошибка.
-  local fe_entry fe_name fe_bind fe_log
+  local fe_entry fe_name fe_bind fe_accept fe_log
   for fe_entry in "${STREAM_FRONTENDS[@]}"; do
     parse_frontend "$fe_entry" || return 1
     fe_name="$F_NAME"
     fe_bind="$F_BIND"
+    fe_accept="$F_ACCEPT"
     fe_log="$F_LOG"
     echo ""
     local -a own=() glob=()
@@ -2324,7 +2362,7 @@ EOF
     fi
     cat << EOF
 frontend ft_$(sanitize_name "$fe_name")
-    bind $fe_bind
+    bind $fe_bind$([ "$fe_accept" = "on" ] && printf " accept-proxy")
     mode tcp
 EOF
     [ "$fe_log" = "off" ] && printf "    no log\n"
@@ -2365,7 +2403,7 @@ EOF
     printf "backend bk_%s\n" "$(sanitize_name "$B_NAME")"
     printf "    mode tcp\n"
     [ "$B_LOG" = "off" ] && printf "    no log\n"
-    printf "    server %s %s%s%s\n" "$(sanitize_name "$B_NAME")" "$B_TO" "$bproxy_line" "$check_sfx"
+    printf "    server %s %s%s%s\n" "$(sanitize_name "$B_NAME")" "$B_TO" "$bproxy_line" "$(check_proxy_sfx "$B_PROXY" "$check_sfx")"
     printf "\n"
   done
   local proxy_line
@@ -2381,7 +2419,7 @@ EOF
     printf "backend bk_%s\n" "${v_name[i]}"
     printf "    mode tcp\n"
     [ "${v_log[i]}" = "off" ] && printf "    no log\n"
-    printf "    server %s %s%s%s\n" "${v_name[i]}" "${v_to[i]}" "$proxy_line" "$check_sfx"
+    printf "    server %s %s%s%s\n" "${v_name[i]}" "${v_to[i]}" "$proxy_line" "$(check_proxy_sfx "${v_proxy[i]}" "$check_sfx")"
     printf "\n"
   done
   local -a done_def=()
@@ -2414,7 +2452,7 @@ EOF
     printf "backend bk_%s\n" "$dn"
     printf "    mode tcp\n"
     [ "${d_log[fdi]}" = "off" ] && printf "    no log\n"
-    printf "    server %s %s%s%s\n" "$dn" "${d_to[fdi]}" "$dsfx" "$check_sfx"
+    printf "    server %s %s%s%s\n" "$dn" "${d_to[fdi]}" "$dsfx" "$(check_proxy_sfx "${d_proxy[fdi]}" "$check_sfx")"
     printf "\n"
   done
   emit_custom "stream-backend-*.cfg"
@@ -3067,7 +3105,7 @@ EOF
       esac
       printf "backend %s\n" "$bk"
       printf "    mode tcp\n"
-      printf "    server xray 127.0.0.1:%s%s%s\n" "${r_ports[i]}" "$proxy_line" "$check_sfx"
+      printf "    server xray 127.0.0.1:%s%s%s\n" "${r_ports[i]}" "$proxy_line" "$(check_proxy_sfx "${r_proxy[i]}" "$check_sfx")"
       printf "\n"
     done
   fi

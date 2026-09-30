@@ -23,7 +23,13 @@ parse_frontend 'name=public bind=*:443' \
   && ok "парсинг name+bind" || bad "парсинг name+bind"
 parse_frontend 'name=office bind=10.0.0.1:8445 log=off' \
   && [ "$F_LOG" = "off" ] \
-  && ok "парсинг log=off" || bad "парсинг log=off"
+  && ok "парсинг log=off" || bad "парсинг log падает"
+parse_frontend 'name=transit bind=*:4443 accept_proxy=on' \
+  && [ "$F_ACCEPT" = "on" ] \
+  && ok "парсинг accept_proxy=on" || bad "парсинг accept_proxy падает"
+parse_frontend 'name=a bind=*:443' \
+  && [ "$F_ACCEPT" = "off" ] \
+  && ok "accept_proxy дефолт off" || bad "accept_proxy дефолт не off"
 
 # --- parse_frontend: битые (fail-closed) ---
 parse_frontend 'name=public' >/dev/null 2>&1 \
@@ -38,6 +44,8 @@ parse_frontend 'name=a bind=*:443 foo=1' >/dev/null 2>&1 \
   && bad "неизвестный ключ не упал" || ok "неизвестный ключ падает"
 parse_frontend 'name=a bind=*:443 log=maybe' >/dev/null 2>&1 \
   && bad "битый log не упал" || ok "битый log падает"
+parse_frontend 'name=a bind=*:443 accept_proxy=maybe' >/dev/null 2>&1 \
+  && bad "битый accept_proxy не упал" || ok "битый accept_proxy падает"
 
 # --- validate_frontends: дубли ---
 STREAM_FRONTENDS=('name=a bind=*:443' 'name=a bind=*:8443')

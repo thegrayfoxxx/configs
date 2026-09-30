@@ -75,3 +75,47 @@ flowchart LR
 - Vision-клиент ходит; браузер без ключа → заглушка 200; чужой SNI/Host → blackhole.
 - XHTTP: `POST /data/...` без UUID → ответ Xray, `GET /` → stub.
 - `haproxy -c` зелёный; без `not a PROXY header` во флуде (рассинхрон пары).
+
+## Транзит между серверами (`TRANSIT=yes`)
+
+Клиент → сервер1 (`edge :443`) → SNI-нога с `send-proxy-v2` → сервер2 (`transit`,
+только с PROXY-заголовком) → там свой SNI-разбор → дальше. Реальный IP клиента
+переживает всю цепочку (`%ci` на каждом хопе), SNI-маршруты без `frontend=`
+слышны сразу в обоих ушах.
+
+```mermaid
+flowchart LR
+    CLIENT["Клиент:443"] --> EDGE["srv1/ft_edge<br/>*:443, прямые"]
+    EDGE -->|SNI = transit| HOP["srv2/ft_transit<br/>*:4443 + accept-proxy"]
+    HOP -->|SNI = reality| XRAY2["srv2/bk_xray"]
+    HOP -->|sni=default| WEB2["srv2/web"]
+    EDGE -->|остальное| WEB1["srv1/web"]
+```
+
+Что включает опция: второе ухо `transit` (`TRANSIT_BIND`, дефолт `*:4443`)
+с `accept-proxy`; edge (`EDGE_BIND`, дефолт `*:443`) без него.
+
+> ❌ КРАСНОЕ: фронт с `accept-proxy` верит заголовку вслепую — кто дотянулся,
+> тот подделал source IP (обход src-ACL/банов, отравление логов и CrowdSec-решений).
+> haproxy внутри от спуфинга не отличает (после `accept-proxy` `src` = заявленный
+> адрес) — лечит только сеть ДО haproxy. Поэтому:
+>
+> 1. На транзитный порт пускать **только IP апстрима** (сервера1). `ufw`
+>    (first match wins — allow выше deny, дефолт входящие deny):
+>    ```
+>    ufw allow from <IP-сервера1> to any port 4443 proto tcp
+>    ufw deny 4443/tcp
+>    ```
+>    Проверка: `ufw status numbered` — `4443` не должен торчать в мир; `ufw`
+>    должен быть `active` (выключенный ufw ничего не закрывает).
+> 2. Закрывать **до** включения транзита, иначе окно уязвимости между apply и файрволом.
+> 3. Еще лучше — бинд на приватный/VPN-адрес вместо `*`, если связность позволяет.
+
+Чек-лист цепочки:
+
+- [ ] транзит зафайрволен (сканер без PROXY умирает на SYN, не доходя до haproxy);
+- [ ] нога несет `send-proxy-v2`, фронт читает (`accept-proxy`), версии совпадают;
+- [ ] `backend_check=tcp` в PROXY-цель: чеки идут с `check-send-proxy` (ставится сам),
+      иначе ящик вечно flagged down;
+- [ ] таймауты с запасом на число хопов (`timeout tunnel`, `global.sh`);
+- [ ] дефолты смотрят в одну сторону (петля `default↔default` между серверами = вис до таймаута, ее никто не ловит).
