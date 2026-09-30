@@ -2600,7 +2600,7 @@ EOF
         acl_name_for "$tag"
         ptag="path_${tag}_$((n + 1))"
         n=$((n + 1))
-        printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+        printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
         printf "    acl %s path_beg %s\n" "$ptag" "${w_paths[e]}"
         printf "    use_backend bk_%s if %s %s\n" "$tag" "$ACL_NAME" "$ptag"
       done
@@ -2610,7 +2610,7 @@ EOF
         [ -z "${w_paths[e]}" ] || continue
         tag="${w_be[e]}"
         acl_name_for "$tag"
-        printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+        printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
         printf "    use_backend bk_%s if %s\n" "$tag" "$ACL_NAME"
         printf "\n"
         break
@@ -2872,7 +2872,7 @@ EOF
       acl_name_for "$tag"
       ptag="path_${tag}_$((n + 1))"
       n=$((n + 1))
-      printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+      printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
       printf "    acl %s path_beg %s\n" "$ptag" "${w_paths[e]}"
       printf "    use_backend bk_%s if %s %s\n" "$tag" "$ACL_NAME" "$ptag"
     done
@@ -2881,7 +2881,7 @@ EOF
       [ -z "${w_paths[e]}" ] || continue
       tag="${w_be[e]}"
       acl_name_for "$tag"
-      printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+      printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
       printf "    use_backend bk_%s if %s\n" "$tag" "$ACL_NAME"
       printf "\n"
       break
@@ -3271,7 +3271,7 @@ EOF
       tag=$(web_tag_for "$o" "${w_ports[e]}" "$e")
       ptag="path_${tag}_$((n + 1))"
       n=$((n + 1))
-      printf "    acl host_%s hdr(host) -i %s\n" "$tag" "$o"
+      printf "    acl host_%s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$tag" "$o"
       printf "    acl %s path_beg %s\n" "$ptag" "${w_paths[e]}"
       printf "    use_backend bk_%s if host_%s %s\n" "$tag" "$tag" "$ptag"
     done
@@ -3280,7 +3280,7 @@ EOF
       [ "${w_domains[e]}" = "$o" ] || continue
       [ -z "${w_paths[e]}" ] || continue
       tag=$(web_tag_for "$o" "${w_ports[e]}" "$e")
-      printf "    acl host_%s hdr(host) -i %s\n" "$tag" "$o"
+      printf "    acl host_%s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$tag" "$o"
       printf "    use_backend bk_%s if host_%s\n" "$tag" "$tag"
       printf "\n"
       break
