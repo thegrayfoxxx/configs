@@ -113,11 +113,16 @@ ask() { # ask VAR "промпт" "дефолт" валидатор -> печат
   # все промпты и ошибки строго в stderr, иначе они отравят значение.
   local var="$1" prompt="$2" def="$3" validator="$4"
   local ans
+  # oneof: показываем допустимые значения сразу (иначе виден только дефолт).
+  local opts_hint=""
+  case "$validator" in
+    oneof:*) opts_hint=" ($(echo "${validator#oneof:}" | tr ',' '/'))" ;;
+  esac
   while true; do
     if [ -n "$def" ]; then
-      printf "  ${CYAN}%s [%s]:${NC} " "$prompt" "$def" >&2
+      printf "  ${CYAN}%s%s [%s]:${NC} " "$prompt" "$opts_hint" "$def" >&2
     else
-      printf "  ${CYAN}%s:${NC} " "$prompt" >&2
+      printf "  ${CYAN}%s%s:${NC} " "$prompt" "$opts_hint" >&2
     fi
     pread -r ans || return 1
     [ -z "$ans" ] && ans="$def"

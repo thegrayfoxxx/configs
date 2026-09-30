@@ -43,7 +43,8 @@ g_save() {
     die "❌ g_save: жди --no-validate"
   fi
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return 1
   fi
   save_sites
@@ -114,11 +115,11 @@ edit_timeouts() {
 edit_binds() {
   load_sites
   local v
-  v=$(ask_default "bind stream (SNI-вход, *:443)" "$(g_get bind_stream "*:443")")
+  v=$(ask_default "bind stream (SNI-вход; например, *:443 — host обязателен)" "$(g_get bind_stream "*:443")")
   [[ "$v" =~ ^[^:]+:[0-9]+$ ]] || { log_error "❌ Жди host:порт"; return; }
   validate_port "${v##*:}" "порт" || return
   g_set bind_stream "$v"
-  v=$(ask_default "bind web (терминация; loopback 127.0.0.1:8443 или *:443 без стрима)" "$(g_get bind_web "*:8443")")
+  v=$(ask_default "bind web (терминация; например, 127.0.0.1:8443 или *:443 — host обязателен)" "$(g_get bind_web "*:8443")")
   [[ "$v" =~ ^[^:]+:[0-9]+$ ]] || { log_error "❌ Жди host:порт"; return; }
   validate_port "${v##*:}" "порт" || return
   g_set bind_web "$v"

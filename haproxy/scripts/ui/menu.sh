@@ -66,6 +66,35 @@ generate_configs_ask() {
     generate_configs "$vflag"
   fi
 }
+# pick_from_list <промпт> <элемент...> — нумерованный выбор из списка.
+# Печатает выбранное значение в stdout (промпты — в stderr, как ask_default).
+# 0/пусто/EOF = отмена (возврат 1), мусор = повтор. Через общий tread-FD.
+pick_from_list() {
+  local prompt="$1"
+  shift
+  local -a items=("$@")
+  if [ "${#items[@]}" -eq 0 ]; then
+    log_error "❌ Список пуст — нечего выбирать"
+    return 1
+  fi
+  local i ans
+  for ((i = 0; i < ${#items[@]}; i++)); do
+    printf "  ${GREEN}%d.${NC} %s\n" "$((i + 1))" "${items[$i]}" >&2
+  done
+  printf "  ${RED}0.${NC} Отмена\n" >&2
+  while true; do
+    printf "  ${CYAN}👉 %s [0]:${NC} " "$prompt" >&2
+    tread -r ans || return 1
+    [ -z "$ans" ] && return 1
+    [ "$ans" = "0" ] && return 1
+    if [[ "$ans" =~ ^[0-9]+$ ]] && [ "$ans" -ge 1 ] && [ "$ans" -le "${#items[@]}" ]; then
+      printf "%s" "${items[$((ans - 1))]}"
+      return 0
+    fi
+    log_error "  ❌ Неверный номер (жди 1-${#items[@]} или 0)"
+  done
+}
+
 # ask_default <промпт> <текущее> — ввод с дефолтом (пусто = оставить как было).
 # Промпт строго в stderr: значение печатается в stdout для $(...)-захвата.
 ask_default() {

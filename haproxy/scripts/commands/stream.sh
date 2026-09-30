@@ -202,7 +202,8 @@ add_route() {
   ensure_stream_default
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -295,14 +296,18 @@ edit_route() {
           log_error "❌ SNI=default зафиксирован (меняется только backend)"
           sleep 1; continue
         fi
-        sni=$(ask_default "SNI через пробел" "$sni")
-        [ -z "$sni" ] && { log_error "❌ SNI не может быть пустым"; sleep 1; continue; }
-        local d bad=false
-        # shellcheck disable=SC2086
-        for d in $sni; do
+        local _new
+        _new=$(ask_default "SNI через пробел" "$sni")
+        [ -z "$_new" ] && { log_error "❌ SNI не может быть пустым"; sleep 1; continue; }
+        local d bad=false _di
+        local -a _snl=()
+        read -ra _snl <<< "$_new" || true
+        for ((_di = 0; _di < ${#_snl[@]}; _di++)); do
+          d="${_snl[$_di]}"
           validate_domain "$d" || bad=true
         done
         [ "$bad" = true ] && { sleep 1; continue; }
+        sni="$_new"
         ;;
       2)
         if $has_be; then
@@ -331,31 +336,33 @@ edit_route() {
             continue
           fi
         fi
-        to=$(ask_default "Backend host:порт" "$to")
-        local _h="${to%:*}"
-        local _p="${to##*:}"
-        if [ -z "$_h" ] || [ "$_h" = "$to" ]; then
+        _new=$(ask_default "Backend host:порт (например, 127.0.0.1:10443 — host обязателен)" "$to")
+        local _h="${_new%:*}"
+        local _p="${_new##*:}"
+        if [ -z "$_h" ] || [ "$_h" = "$_new" ]; then
           log_error "❌ Жди host:порт (например, 127.0.0.1:10443)"
           sleep 1; continue
         fi
         validate_port "$_p" "порт бэкенда" || { sleep 1; continue; }
+        to="$_new"
         use_ref=""
-        proxy=$(ask_default "PROXY-протокол (off/v1/v2)" "$proxy")
-        case "$proxy" in
-          off | v1 | v2) ;;
+        _new=$(ask_default "PROXY-протокол (off/v1/v2)" "$proxy")
+        case "$_new" in
+          off | v1 | v2) proxy="$_new" ;;
           *) log_error "❌ Жди off/v1/v2"; sleep 1; continue ;;
         esac
         if [ -z "$name" ]; then
           name="sni-$((${#STREAM_ROUTES[@]} + 1))"
         fi
-        name=$(ask_default "Имя маршрута" "$name")
-        if [[ ! "$name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        _new=$(ask_default "Имя маршрута" "$name")
+        if [[ ! "$_new" =~ ^[A-Za-z0-9_-]+$ ]]; then
           log_error "❌ Имя: только латиница/цифры/_/-"
           sleep 1; continue
         fi
-        be_log=$(ask_default "Логи бэкенда (on/off)" "$be_log")
-        case "$be_log" in
-          on | off) ;;
+        name="$_new"
+        _new=$(ask_default "Логи бэкенда (on/off)" "$be_log")
+        case "$_new" in
+          on | off) be_log="$_new" ;;
           *) log_error "❌ Жди on/off"; sleep 1; continue ;;
         esac
         ;;
@@ -364,9 +371,9 @@ edit_route() {
           log_error "❌ У ссылки настроек нет — смени backend (п.2)"
           sleep 1; continue
         fi
-        proxy=$(ask_default "PROXY-протокол (off/v1/v2)" "$proxy")
-        case "$proxy" in
-          off | v1 | v2) ;;
+        _new=$(ask_default "PROXY-протокол (off/v1/v2)" "$proxy")
+        case "$_new" in
+          off | v1 | v2) proxy="$_new" ;;
           *) log_error "❌ Жди off/v1/v2"; sleep 1; continue ;;
         esac
         ;;
@@ -378,20 +385,21 @@ edit_route() {
         if [ -z "$name" ]; then
           name="sni-$((${#STREAM_ROUTES[@]} + 1))"
         fi
-        name=$(ask_default "Имя маршрута" "$name")
-        if [[ ! "$name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        _new=$(ask_default "Имя маршрута" "$name")
+        if [[ ! "$_new" =~ ^[A-Za-z0-9_-]+$ ]]; then
           log_error "❌ Имя: только латиница/цифры/_/-"
           sleep 1; continue
         fi
+        name="$_new"
         ;;
       5)
         if [ -n "$use_ref" ]; then
           log_error "❌ У ссылки настроек нет — смени backend (п.2)"
           sleep 1; continue
         fi
-        be_log=$(ask_default "Логи бэкенда (on/off)" "$be_log")
-        case "$be_log" in
-          on | off) ;;
+        _new=$(ask_default "Логи бэкенда (on/off)" "$be_log")
+        case "$_new" in
+          on | off) be_log="$_new" ;;
           *) log_error "❌ Жди on/off"; sleep 1; continue ;;
         esac
         ;;
@@ -458,7 +466,8 @@ edit_route() {
   STREAM_ROUTES[$idx]="$rec"
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -535,7 +544,8 @@ remove_route() {
   STREAM_ROUTES=("${STREAM_ROUTES[@]+"${STREAM_ROUTES[@]}"}")
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -634,9 +644,12 @@ fe_add() {
   tread -r fe_name
   [ -z "$fe_name" ] && { log_error "❌ Имя не может быть пустым"; return; }
 
-  printf "  ${CYAN}👉 Bind host:порт (например, 10.0.0.1:8445):${NC} "
-  tread -r fe_bind
-  [ -z "$fe_bind" ] && { log_error "❌ Bind не может быть пустым"; return; }
+  while true; do
+    printf "  ${CYAN}👉 Bind host:порт (например, *:9443 — host обязателен, пусто = отмена):${NC} "
+    tread -r fe_bind || return
+    [ -z "$fe_bind" ] && { log_info "Отмена"; return; }
+    validate_bind "$fe_bind" && break
+  done
 
   printf "  ${CYAN}👉 Писать логи фронтенда (on/off) [on]:${NC} "
   tread -r fe_log
@@ -650,7 +663,8 @@ fe_add() {
   frontend_add stream "$fe_name" "$fe_bind" "$fe_log" "$fe_accept" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -685,9 +699,9 @@ fe_edit() {
     log_info "  Введи имя 'main' ниже."
   fi
 
-  printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  tread -r fe_name
-  { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
+  local -a _pick=()
+  mapfile -t _pick < <(frontend_names "${STREAM_FRONTENDS[@]}" 2>/dev/null)
+  fe_name=$(pick_from_list "Фронтенд" "${_pick[@]}") || return
 
   local idx=-1 i
   for i in "${!STREAM_FRONTENDS[@]}"; do
@@ -725,14 +739,13 @@ fe_edit() {
 
     case "$fchoice" in
       1)
-        fe_bind=$(ask_default "Bind host:порт" "$fe_bind")
-        local _h="${fe_bind%:*}"
-        local _p="${fe_bind##*:}"
-        if [ -z "$_h" ] || [ "$_h" = "$fe_bind" ]; then
-          log_error "❌ Жди host:порт (например, 10.0.0.1:8445)"
+        local new_bind
+        new_bind=$(ask_default "Bind host:порт (например, *:9443 — host обязателен)" "$fe_bind")
+        if validate_bind "$new_bind"; then
+          fe_bind="$new_bind"
+        else
           sleep 1; continue
         fi
-        validate_port "$_p" "порт фронтенда" || { sleep 1; continue; }
         ;;
       2)
         fe_log=$(ask_default "Логи фронтенда (on/off)" "$fe_log")
@@ -773,7 +786,8 @@ fe_edit() {
   STREAM_FRONTENDS[$idx]="$rec"
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -799,14 +813,9 @@ fe_remove() {
     return
   fi
 
-  printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  tread -r fe_name
-  { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
-
-  if ! frontend_exists stream "$fe_name"; then
-    log_error "❌ stream-фронтенд '${fe_name}' не найден"
-    return
-  fi
+  local -a _pick=()
+  mapfile -t _pick < <(frontend_names "${STREAM_FRONTENDS[@]}" 2>/dev/null)
+  fe_name=$(pick_from_list "Фронтенд" "${_pick[@]}") || return
   if ! menu_confirm "Удалить фронтенд '${fe_name}'? [y/N]:"; then
     log_info "Отмена (ничего не удалено)"
     return
@@ -814,7 +823,8 @@ fe_remove() {
   frontend_remove stream "$fe_name" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -892,7 +902,8 @@ be_add() {
   backend_add stream "$rec" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -917,9 +928,9 @@ be_edit() {
     return
   fi
 
-  printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  tread -r be_name
-  { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
+  local -a _pick=()
+  mapfile -t _pick < <(backend_names stream "${STREAM_BACKENDS[@]}" 2>/dev/null)
+  be_name=$(pick_from_list "Ящик" "${_pick[@]}") || return
 
   local idx=-1 i
   for i in "${!STREAM_BACKENDS[@]}"; do
@@ -959,26 +970,30 @@ be_edit() {
 
     case "$fchoice" in
       1)
-        be_to=$(ask_default "Backend host:порт" "$be_to")
-        local _h="${be_to%:*}"
-        local _p="${be_to##*:}"
-        if [ -z "$_h" ] || [ "$_h" = "$be_to" ]; then
+        local _newto
+        _newto=$(ask_default "Backend host:порт (например, 127.0.0.1:10443 — host обязателен)" "$be_to")
+        local _h="${_newto%:*}"
+        local _p="${_newto##*:}"
+        if [ -z "$_h" ] || [ "$_h" = "$_newto" ]; then
           log_error "❌ Жди host:порт (например, 127.0.0.1:10443)"
           sleep 1; continue
         fi
         validate_port "$_p" "порт бэкенда" || { sleep 1; continue; }
+        be_to="$_newto"
         ;;
       2)
-        be_proxy=$(ask_default "PROXY-протокол (off/v1/v2)" "$be_proxy")
-        case "$be_proxy" in
-          off | v1 | v2) ;;
+        local _newproxy
+        _newproxy=$(ask_default "PROXY-протокол (off/v1/v2)" "$be_proxy")
+        case "$_newproxy" in
+          off | v1 | v2) be_proxy="$_newproxy" ;;
           *) log_error "❌ Жди off/v1/v2"; sleep 1; continue ;;
         esac
         ;;
       3)
-        be_log=$(ask_default "Логи (on/off)" "$be_log")
-        case "$be_log" in
-          on | off) ;;
+        local _newlog
+        _newlog=$(ask_default "Логи (on/off)" "$be_log")
+        case "$_newlog" in
+          on | off) be_log="$_newlog" ;;
           *) log_error "❌ Жди on/off"; sleep 1; continue ;;
         esac
         ;;
@@ -1005,7 +1020,8 @@ be_edit() {
   STREAM_BACKENDS[$idx]="$rec"
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -1031,14 +1047,9 @@ be_remove() {
     return
   fi
 
-  printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  tread -r be_name
-  { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
-
-  if ! backend_exists stream "$be_name"; then
-    log_error "❌ stream-бэкенд '${be_name}' не найден"
-    return
-  fi
+  local -a _pick=()
+  mapfile -t _pick < <(backend_names stream "${STREAM_BACKENDS[@]}" 2>/dev/null)
+  be_name=$(pick_from_list "Ящик" "${_pick[@]}") || return
   if ! menu_confirm "Удалить ящик '${be_name}'? [y/N]:"; then
     log_info "Отмена (ничего не удалено)"
     return
@@ -1046,7 +1057,8 @@ be_remove() {
   backend_remove stream "$be_name" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites

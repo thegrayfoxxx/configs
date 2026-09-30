@@ -89,7 +89,9 @@ mktmp() {
   diff -u "$TDIR/fixtures/expected6-web-xhttp-web.cfg" "$TMP/web/haproxy.cfg" \
     && grep -q 'option forwardfor' "$TMP/web/haproxy.cfg" \
     && ! grep -q 'accept-proxy' "$TMP/web/haproxy.cfg" \
-    && printf "  ok: golden6 web-xhttp web совпал (forwardfor, без proxy)\n" \
+    && grep -q 'hdr(host),regsub(:\[0-9\]+$,) -i' "$TMP/web/haproxy.cfg" \
+    && ! grep -q 'acl .* hdr(host) -i' "$TMP/web/haproxy.cfg" \
+    && printf "  ok: golden6 web-xhttp web совпал (forwardfor, без proxy, host без порта)\n" \
     || { printf "  FAIL: golden6 web-xhttp web\n"; fail=1; }
   trap - EXIT
   rm -rf "$TMP"

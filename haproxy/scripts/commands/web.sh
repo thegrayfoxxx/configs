@@ -180,7 +180,8 @@ add_route() {
   ensure_stream_default
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -270,9 +271,11 @@ edit_route() {
 
     case "$fchoice" in
       1)
-        host=$(ask_default "Домен" "$host")
-        [ -z "$host" ] && { log_error "❌ Домен не может быть пустым"; sleep 1; continue; }
-        validate_domain "$host" || { sleep 1; continue; }
+        local _new
+        _new=$(ask_default "Домен (например, site.example.com)" "$host")
+        [ -z "$_new" ] && { log_error "❌ Домен не может быть пустым"; sleep 1; continue; }
+        validate_domain "$_new" || { sleep 1; continue; }
+        host="$_new"
         ;;
       2)
         if $has_be; then
@@ -308,39 +311,45 @@ edit_route() {
         if [ -z "$use_ref" ]; then
           [ -z "$to" ] && to="$o_to"
         fi
-        to=$(ask_default "Backend (порт или host:порт)" "$to")
-        [ -z "$to" ] && { log_error "❌ Backend не может быть пустым"; sleep 1; continue; }
-        [[ "$to" != *:* ]] && to="127.0.0.1:${to}"
-        local _h="${to%:*}"
-        local _p="${to##*:}"
-        if [ -z "$_h" ] || [ "$_h" = "$to" ]; then
+        local _newto
+        _newto=$(ask_default "Backend (порт или host:порт, например 8080)" "$to")
+        [ -z "$_newto" ] && { log_error "❌ Backend не может быть пустым"; sleep 1; continue; }
+        [[ "$_newto" != *:* ]] && _newto="127.0.0.1:${_newto}"
+        local _h="${_newto%:*}"
+        local _p="${_newto##*:}"
+        if [ -z "$_h" ] || [ "$_h" = "$_newto" ]; then
           log_error "❌ Жди порт или host:порт"
           sleep 1; continue
         fi
         validate_port "$_p" "порт бэкенда" || { sleep 1; continue; }
+        to="$_newto"
         use_ref=""
-        be_log=$(ask_default "Логи бэкенда (on/off)" "$be_log")
-        case "$be_log" in
-          on | off) ;;
+        local _newlog
+        _newlog=$(ask_default "Логи бэкенда (on/off)" "$be_log")
+        case "$_newlog" in
+          on | off) be_log="$_newlog" ;;
           *) log_error "❌ Жди on/off"; sleep 1; continue ;;
         esac
         ;;
       3)
-        path=$(ask_default "Path-префикс ('-' = весь хост)" "${path:--}")
-        if [ -n "$path" ] && [[ "$path" != /* ]] && [ "$path" != "-" ]; then
+        local _newpath
+        _newpath=$(ask_default "Path-префикс (например, /data/; '-' = весь хост)" "${path:--}")
+        if [ -n "$_newpath" ] && [[ "$_newpath" != /* ]] && [ "$_newpath" != "-" ]; then
           log_error "❌ Path должен начинаться с '/' ('-' = весь хост)"
           sleep 1; continue
         fi
-        [ "$path" = "-" ] && path=""
+        [ "$_newpath" = "-" ] && _newpath=""
+        path="$_newpath"
         ;;
       4)
         if [ -n "$use_ref" ]; then
           log_error "❌ У ссылки настроек нет — смени backend (п.2)"
           sleep 1; continue
         fi
-        be_log=$(ask_default "Логи бэкенда (on/off)" "$be_log")
-        case "$be_log" in
-          on | off) ;;
+        local _newlog2
+        _newlog2=$(ask_default "Логи бэкенда (on/off)" "$be_log")
+        case "$_newlog2" in
+          on | off) be_log="$_newlog2" ;;
           *) log_error "❌ Жди on/off"; sleep 1; continue ;;
         esac
         ;;
@@ -407,7 +416,8 @@ edit_route() {
   ensure_stream_default
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -469,7 +479,8 @@ remove_route() {
   WEB_ROUTES=("${WEB_ROUTES[@]+"${WEB_ROUTES[@]}"}")
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -571,9 +582,14 @@ fe_add() {
   tread -r fe_name
   [ -z "$fe_name" ] && { log_error "❌ Имя не может быть пустым"; return; }
 
-  printf "  ${CYAN}👉 Bind host:порт (например, 127.0.0.1:9443):${NC} "
+  printf "  ${CYAN}👉 Bind host:порт (например, 127.0.0.1:9443 — host обязателен):${NC} "
   tread -r fe_bind
   [ -z "$fe_bind" ] && { log_error "❌ Bind не может быть пустым"; return; }
+  while ! validate_bind "$fe_bind"; do
+    printf "  ${CYAN}👉 Bind host:порт (например, 127.0.0.1:9443) [отмена — пусто]:${NC} "
+    tread -r fe_bind || return
+    [ -z "$fe_bind" ] && { log_info "Отмена"; return; }
+  done
 
   printf "  ${CYAN}👉 Писать логи фронтенда (on/off) [on]:${NC} "
   tread -r fe_log
@@ -582,7 +598,8 @@ fe_add() {
   frontend_add web "$fe_name" "$fe_bind" "$fe_log" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -617,9 +634,9 @@ fe_edit() {
     log_info "  Введи имя 'main' ниже."
   fi
 
-  printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  tread -r fe_name
-  { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
+  local -a _pick=()
+  mapfile -t _pick < <(frontend_names "${WEB_FRONTENDS[@]}" 2>/dev/null)
+  fe_name=$(pick_from_list "Фронтенд" "${_pick[@]}") || return
 
   local idx=-1 i
   for i in "${!WEB_FRONTENDS[@]}"; do
@@ -655,14 +672,13 @@ fe_edit() {
 
     case "$fchoice" in
       1)
-        fe_bind=$(ask_default "Bind host:порт" "$fe_bind")
-        local _h="${fe_bind%:*}"
-        local _p="${fe_bind##*:}"
-        if [ -z "$_h" ] || [ "$_h" = "$fe_bind" ]; then
-          log_error "❌ Жди host:порт (например, 127.0.0.1:9443)"
+        local new_bind
+        new_bind=$(ask_default "Bind host:порт (например, *:9443 — host обязателен)" "$fe_bind")
+        if validate_bind "$new_bind"; then
+          fe_bind="$new_bind"
+        else
           sleep 1; continue
         fi
-        validate_port "$_p" "порт фронтенда" || { sleep 1; continue; }
         ;;
       2)
         fe_log=$(ask_default "Логи фронтенда (on/off)" "$fe_log")
@@ -694,7 +710,8 @@ fe_edit() {
   WEB_FRONTENDS[$idx]="$rec"
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -720,14 +737,9 @@ fe_remove() {
     return
   fi
 
-  printf "  ${CYAN}👉 Имя фронтенда (0 - отмена):${NC} "
-  tread -r fe_name
-  { [ "$fe_name" = "0" ] || [ -z "$fe_name" ]; } && return
-
-  if ! frontend_exists web "$fe_name"; then
-    log_error "❌ web-фронтенд '${fe_name}' не найден"
-    return
-  fi
+  local -a _pick=()
+  mapfile -t _pick < <(frontend_names "${WEB_FRONTENDS[@]}" 2>/dev/null)
+  fe_name=$(pick_from_list "Фронтенд" "${_pick[@]}") || return
   if ! menu_confirm "Удалить фронтенд '${fe_name}'? [y/N]:"; then
     log_info "Отмена (ничего не удалено)"
     return
@@ -735,7 +747,8 @@ fe_remove() {
   frontend_remove web "$fe_name" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -810,7 +823,8 @@ be_add() {
   backend_add web "$rec" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -835,9 +849,9 @@ be_edit() {
     return
   fi
 
-  printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  tread -r be_name
-  { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
+  local -a _pick=()
+  mapfile -t _pick < <(backend_names web "${WEB_BACKENDS[@]}" 2>/dev/null)
+  be_name=$(pick_from_list "Ящик" "${_pick[@]}") || return
 
   local idx=-1 i
   for i in "${!WEB_BACKENDS[@]}"; do
@@ -875,21 +889,24 @@ be_edit() {
 
     case "$fchoice" in
       1)
-        be_to=$(ask_default "Backend (порт или host:порт)" "$be_to")
-        [ -z "$be_to" ] && { log_error "❌ Backend не может быть пустым"; sleep 1; continue; }
-        [[ "$be_to" != *:* ]] && be_to="127.0.0.1:${be_to}"
-        local _h="${be_to%:*}"
-        local _p="${be_to##*:}"
-        if [ -z "$_h" ] || [ "$_h" = "$be_to" ]; then
+        local _newto
+        _newto=$(ask_default "Backend (порт или host:порт, например 8080)" "$be_to")
+        [ -z "$_newto" ] && { log_error "❌ Backend не может быть пустым"; sleep 1; continue; }
+        [[ "$_newto" != *:* ]] && _newto="127.0.0.1:${_newto}"
+        local _h="${_newto%:*}"
+        local _p="${_newto##*:}"
+        if [ -z "$_h" ] || [ "$_h" = "$_newto" ]; then
           log_error "❌ Жди порт или host:порт"
           sleep 1; continue
         fi
         validate_port "$_p" "порт бэкенда" || { sleep 1; continue; }
+        be_to="$_newto"
         ;;
       2)
-        be_log=$(ask_default "Логи (on/off)" "$be_log")
-        case "$be_log" in
-          on | off) ;;
+        local _newlog
+        _newlog=$(ask_default "Логи (on/off)" "$be_log")
+        case "$_newlog" in
+          on | off) be_log="$_newlog" ;;
           *) log_error "❌ Жди on/off"; sleep 1; continue ;;
         esac
         ;;
@@ -917,7 +934,8 @@ be_edit() {
   WEB_BACKENDS[$idx]="$rec"
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites
@@ -943,14 +961,9 @@ be_remove() {
     return
   fi
 
-  printf "  ${CYAN}👉 Имя ящика (0 - отмена):${NC} "
-  tread -r be_name
-  { [ "$be_name" = "0" ] || [ -z "$be_name" ]; } && return
-
-  if ! backend_exists web "$be_name"; then
-    log_error "❌ web-бэкенд '${be_name}' не найден"
-    return
-  fi
+  local -a _pick=()
+  mapfile -t _pick < <(backend_names web "${WEB_BACKENDS[@]}" 2>/dev/null)
+  be_name=$(pick_from_list "Ящик" "${_pick[@]}") || return
   if ! menu_confirm "Удалить ящик '${be_name}'? [y/N]:"; then
     log_info "Отмена (ничего не удалено)"
     return
@@ -958,7 +971,8 @@ be_remove() {
   backend_remove web "$be_name" || return
 
   if ! validate_all; then
-    log_error "❌ Проверка не пройдена — файл не тронут"
+    log_error "❌ Проверка не пройдена — файл не тронут (детали выше)"
+    menu_pause
     return
   fi
   save_sites

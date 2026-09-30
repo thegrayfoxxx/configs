@@ -896,6 +896,21 @@ validate_host() {
   return 0
 }
 
+# validate_bind <значение> — формат host:порт (host обязателен: *:9443 или
+# 127.0.0.1:8443; голый порт вроде 9443 — не бинд и отклоняется: неясно,
+# слушать ли весь мир (*) или loopback, додумывать запрещено).
+validate_bind() {
+  local v="$1"
+  local _h="${v%:*}"
+  local _p="${v##*:}"
+  if [ -z "$_h" ] || [ "$_h" = "$v" ]; then
+    log_error "  ❌ Жди host:порт (например, *:9443 — host обязателен, голый порт не годится)" >&2
+    return 1
+  fi
+  validate_host "$_h" "хост" >&2 || return 1
+  validate_port "$_p" "порт" >&2 || return 1
+}
+
 # validate_email <мыло> — строгий формат (только латиница/цифры, иначе ACME
 # молча примет битый контакт вроде кириллицы).
 validate_email() {
@@ -1831,6 +1846,21 @@ frontend_add() {
   log_info "  ✓ ${kind}-фронтенд '${name}' добавлен"
 }
 
+# backend_names <kind> <записи...> — печатает имена ящиков (по одному на строку).
+backend_names() {
+  local kind="$1"
+  shift
+  local entry
+  for entry in "$@"; do
+    if [ "$kind" = "stream" ]; then
+      parse_stream_backend "$entry" 2>/dev/null || continue
+    else
+      parse_web_backend "$entry" 2>/dev/null || continue
+    fi
+    printf "%s\n" "$B_NAME"
+  done
+}
+
 # frontend_refs <kind> <name> — напечатать записи маршрутов, ссылающиеся на фронтенд.
 frontend_refs() {
   local kind="$1" name="$2"
@@ -2600,7 +2630,7 @@ EOF
         acl_name_for "$tag"
         ptag="path_${tag}_$((n + 1))"
         n=$((n + 1))
-        printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+        printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
         printf "    acl %s path_beg %s\n" "$ptag" "${w_paths[e]}"
         printf "    use_backend bk_%s if %s %s\n" "$tag" "$ACL_NAME" "$ptag"
       done
@@ -2610,7 +2640,7 @@ EOF
         [ -z "${w_paths[e]}" ] || continue
         tag="${w_be[e]}"
         acl_name_for "$tag"
-        printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+        printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
         printf "    use_backend bk_%s if %s\n" "$tag" "$ACL_NAME"
         printf "\n"
         break
@@ -2872,7 +2902,7 @@ EOF
       acl_name_for "$tag"
       ptag="path_${tag}_$((n + 1))"
       n=$((n + 1))
-      printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+      printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
       printf "    acl %s path_beg %s\n" "$ptag" "${w_paths[e]}"
       printf "    use_backend bk_%s if %s %s\n" "$tag" "$ACL_NAME" "$ptag"
     done
@@ -2881,7 +2911,7 @@ EOF
       [ -z "${w_paths[e]}" ] || continue
       tag="${w_be[e]}"
       acl_name_for "$tag"
-      printf "    acl %s hdr(host) -i %s\n" "$ACL_NAME" "$o"
+      printf "    acl %s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$ACL_NAME" "$o"
       printf "    use_backend bk_%s if %s\n" "$tag" "$ACL_NAME"
       printf "\n"
       break
@@ -3271,7 +3301,7 @@ EOF
       tag=$(web_tag_for "$o" "${w_ports[e]}" "$e")
       ptag="path_${tag}_$((n + 1))"
       n=$((n + 1))
-      printf "    acl host_%s hdr(host) -i %s\n" "$tag" "$o"
+      printf "    acl host_%s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$tag" "$o"
       printf "    acl %s path_beg %s\n" "$ptag" "${w_paths[e]}"
       printf "    use_backend bk_%s if host_%s %s\n" "$tag" "$tag" "$ptag"
     done
@@ -3280,7 +3310,7 @@ EOF
       [ "${w_domains[e]}" = "$o" ] || continue
       [ -z "${w_paths[e]}" ] || continue
       tag=$(web_tag_for "$o" "${w_ports[e]}" "$e")
-      printf "    acl host_%s hdr(host) -i %s\n" "$tag" "$o"
+      printf "    acl host_%s hdr(host),regsub(:[0-9]+$,) -i %s\n" "$tag" "$o"
       printf "    use_backend bk_%s if host_%s\n" "$tag" "$tag"
       printf "\n"
       break

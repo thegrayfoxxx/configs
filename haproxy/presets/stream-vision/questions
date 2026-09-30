@@ -19,8 +19,8 @@ STREAM_WEB_PROXY|Слать PROXY из stream в web|v2|oneof:off,v1,v2
 WEB_ACCEPT_PROXY|Читать PROXY на web (парно к предыдущему!)|on|oneof:off,on
 BLACKHOLE|Режим blackhole для чужих SNI/Host|deny|oneof:deny,tarpit
 TRANSIT|Транзит между серверами: второе stream-ухо только с PROXY (см. README)|no|oneof:no,yes
-EDGE_BIND|Bind публичного уха (прямые клиенты, без PROXY)|*:443|bind|when:TRANSIT==yes
-TRANSIT_BIND|Bind транзитного уха (только PROXY! доверенный адрес + файрвол)|*:4443|bind|when:TRANSIT==yes
+EDGE_BIND|Bind публичного уха (прямые клиенты, без PROXY; например, *:443 — host обязателен)|*:443|bind|when:TRANSIT==yes
+TRANSIT_BIND|Bind транзитного уха (только PROXY! доверенный адрес + файрвол; например, *:4443)|*:4443|bind|when:TRANSIT==yes
 TIMEOUT_PROFILE|Профиль таймаутов (sites-50s — обычные, xhttp-1h — долгие сессии)|xhttp-1h|oneof:sites-50s,xhttp-1h
 BACKEND_CHECK|Healthcheck-и бэкендов (tcp шумит в логах Xray)|off|oneof:off,tcp
 STREAM_LOG_SNI|Писать SNI в stream-лог|off|oneof:off,on
