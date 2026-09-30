@@ -431,6 +431,31 @@ EOF
   rm -rf "$TMP"
 }
 
+# --- oneof: варианты видны в промпте, а не только дефолт ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  mkdir -p "$TMP/presets/oo"
+  cat > "$TMP/presets/oo/preset.conf" << 'EOF'
+ACME_EMAIL="{{ACME_EMAIL}}"
+GLOBAL_OPTS=(
+  "blackhole={{MODE}}"
+)
+EOF
+  cat > "$TMP/presets/oo/questions" << 'EOF'
+ACME_EMAIL|Email|mail@example.com|email
+MODE|Режим|a|oneof:a,b
+EOF
+  printf 't@e.com\n\n' > "$TMP/tty-in"
+  out=$(PRESET_TTY="$TMP/tty-in" PRESETS_DIR_OVERRIDE="$TMP/presets" HAPROXY_DIR_OVERRIDE="$TMP" bash "$PROJ/scripts/preset.sh" apply oo --dry-run 2>"$TMP/err.txt")
+  echo "$out" | grep -q '"blackhole=a"' \
+    && grep -q '(a/b)' "$TMP/err.txt" \
+    && printf "  ok: oneof показывает варианты\n" \
+    || { printf "  FAIL: oneof-подсказка\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
 # --- #if/#else юнит на временном пресете ---
 {
   TMP="$(mktmp)"

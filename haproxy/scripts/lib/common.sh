@@ -896,6 +896,21 @@ validate_host() {
   return 0
 }
 
+# validate_bind <значение> — формат host:порт (host обязателен: *:9443 или
+# 127.0.0.1:8443; голый порт вроде 9443 — не бинд и отклоняется: неясно,
+# слушать ли весь мир (*) или loopback, додумывать запрещено).
+validate_bind() {
+  local v="$1"
+  local _h="${v%:*}"
+  local _p="${v##*:}"
+  if [ -z "$_h" ] || [ "$_h" = "$v" ]; then
+    log_error "  ❌ Жди host:порт (например, *:9443 — host обязателен, голый порт не годится)" >&2
+    return 1
+  fi
+  validate_host "$_h" "хост" >&2 || return 1
+  validate_port "$_p" "порт" >&2 || return 1
+}
+
 # validate_email <мыло> — строгий формат (только латиница/цифры, иначе ACME
 # молча примет битый контакт вроде кириллицы).
 validate_email() {
@@ -1829,6 +1844,21 @@ frontend_add() {
   if [ "$kind" = "stream" ]; then local -n arr=STREAM_FRONTENDS; else local -n arr=WEB_FRONTENDS; fi
   arr+=("$rec")
   log_info "  ✓ ${kind}-фронтенд '${name}' добавлен"
+}
+
+# backend_names <kind> <записи...> — печатает имена ящиков (по одному на строку).
+backend_names() {
+  local kind="$1"
+  shift
+  local entry
+  for entry in "$@"; do
+    if [ "$kind" = "stream" ]; then
+      parse_stream_backend "$entry" 2>/dev/null || continue
+    else
+      parse_web_backend "$entry" 2>/dev/null || continue
+    fi
+    printf "%s\n" "$B_NAME"
+  done
 }
 
 # frontend_refs <kind> <name> — напечатать записи маршрутов, ссылающиеся на фронтенд.
