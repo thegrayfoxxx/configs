@@ -1,0 +1,10 @@
+# Формат: VAR|промпт|дефолт|валидатор[|when:COND]
+ACME_EMAIL|Email для ACME|mail@example.com|email
+STUB_DOMAIN|Домен-таргет (SNI reality и Host fallback)|drop.example.com|domain
+STUB_PORT|Порт заглушки за web (nginx/static)|8080|port
+BLACKHOLE|Режим blackhole для чужих Host|deny|oneof:deny,tarpit
+WEB_ACCEPT_PROXY|Читать PROXY на web (on — если в Xray realitySettings.xver: 2)|off|oneof:off,on
+XRAY_XVER|Xray шлет PROXY в web-таргет (realitySettings.xver: 2 = v2, иначе off)|off|oneof:off,v2
+TIMEOUT_PROFILE|Профиль таймаутов|sites-50s|oneof:sites-50s,xhttp-1h
+BACKEND_CHECK|Healthcheck-и бэкендов|off|oneof:off,tcp
+LOGS_CAPTURE|Capture Host и X-Forwarded-For в web-лог|off|oneof:off,on

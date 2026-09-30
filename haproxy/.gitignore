@@ -1,2 +1,7 @@
 sites.conf
 haproxy.cfg
+# Волна 1: локальное состояние и бэкапы не трекаем
+.backup/
+.enabled_services
+custom/*.cfg
+!custom/.gitkeep

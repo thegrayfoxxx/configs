@@ -18,14 +18,14 @@ frontend ft_https_terminated
     bind *:8443 ssl crt /etc/haproxy/certs/
     mode http
 
-    acl host_site1 hdr(host) -i site1.com
-    use_backend bk_site1 if host_site1
+    acl host_site_site1_com hdr(host) -i site1.com
+    use_backend bk_site_site1_com if host_site_site1_com
 
     default_backend bk_blackhole
 
-backend bk_site1
+backend bk_site_site1_com
     mode http
-    server site1 127.0.0.1:11443
+    server site_site1_com 127.0.0.1:8080
 
 backend bk_blackhole
     mode http

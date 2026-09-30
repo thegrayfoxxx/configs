@@ -1,0 +1,13 @@
+# Формат: VAR|промпт|дефолт|валидатор[|when:COND]
+# COND: VAR==val[&&VAR2!=val2], значения через запятую = ИЛИ.
+ACME_EMAIL|Email для ACME|mail@example.com|email
+WEB_MODE|Режим web (sites — N сайтов, xhttp-split — один домен с path-сплитом)|sites|oneof:sites,xhttp-split
+SITES_LINES|Сайты: домен и бэкенд||list:hostport|when:WEB_MODE==sites
+XHTTP_DOMAIN|Домен XHTTP (он же Host, обычно за CDN)|x.cdn.example.com|domain|when:WEB_MODE==xhttp-split
+XHTTP_PORT|Порт бэкенда Xray XHTTP (plain HTTP, security:none)|11443|port|when:WEB_MODE==xhttp-split
+XHTTP_PATH|Path API XHTTP (должен совпадать с path в Xray)|/data/|path|when:WEB_MODE==xhttp-split
+STUB_PORT|Порт заглушки (статика для браузеров)|8080|port|when:WEB_MODE==xhttp-split
+BLACKHOLE|Режим blackhole для чужих Host (deny = 403 сразу, tarpit = держать сканера)|deny|oneof:deny,tarpit
+TIMEOUT_PROFILE|Профиль таймаутов (sites-50s — обычные сайты, xhttp-1h — долгие XHTTP-сессии)|sites-50s|oneof:sites-50s,xhttp-1h
+BACKEND_CHECK|Healthcheck-и бэкендов (tcp шумит в логах Xray)|off|oneof:off,tcp
+LOGS_CAPTURE|Capture Host и X-Forwarded-For в web-лог|off|oneof:off,on

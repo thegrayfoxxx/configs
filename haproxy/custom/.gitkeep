@@ -1,0 +1,7 @@
+# Кастомные вставки переживают перегенерацию.
+# Файлы вида custom/<секция>-<имя>.cfg подклеиваются генератором:
+#   stream-frontend-*.cfg  -> конец frontend ft_https (stream)
+#   stream-backend-*.cfg   -> конец stream-бэкендов
+#   web-frontend-*.cfg     -> конец frontend ft_https_terminated (web)
+#   web-backend-*.cfg      -> конец web-бэкендов
+# Всё в этой директории (*.cfg) игнорируется git'ом, кроме этого файла.
