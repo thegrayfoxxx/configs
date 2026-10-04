@@ -60,6 +60,9 @@ update_from_repo() {
   printf "\n"
   log_info "  ✅ Готово"
   printf "\n"
+  log_warn "  ⚠️  Если менялся compose.yml (например, политика рестарта) — один раз:"
+  printf "     ${CYAN}docker compose up -d (через раздел 5, с нужными профилями)${NC}\n"
+  printf "\n"
   log_warn "  ⚠️  Не забудь создать sites.conf, если его нет:"
   printf "     ${CYAN}cp sites.conf.example sites.conf${NC}\n"
 }

@@ -68,6 +68,64 @@ preset_require() {
   die "❌ Пресет '${name}' не найден"
 }
 
+# preset_align_services <имя> — сверить набор сервисов с presets/<имя>/services.
+# Файла нет или набор совпал — молча ничего. Иначе нумерованный выбор:
+# 1 = записать набор + остановить лишнее запущенное сейчас, 0 = оставить.
+# Возврат всегда 0 (отмена — тоже исход). Только интерактив — вызыватель решает.
+preset_align_services() {
+  local name="$1"
+  local sfile
+  sfile="$(preset_dir "$name")/services"
+  [ -f "$sfile" ] || return 0
+  local want cur
+  want=$(tr '\n' ' ' < "$sfile" | xargs)
+  [ -z "$want" ] && return 0
+  local w
+  for w in $want; do
+    case "$w" in
+      stream | web | acme) ;;
+      *)
+        log_error "  ❌ Битый services в пресете '${name}': '${w}' (жди из stream/web/acme)"
+        return 1
+        ;;
+    esac
+  done
+  cur=$(svc_load_enabled)
+  local norm_cur norm_want
+  norm_cur=$(printf "%s\n" $cur | sort | tr '\n' ' ' | xargs)
+  norm_want=$(printf "%s\n" $want | sort | tr '\n' ' ' | xargs)
+  [ "$norm_cur" = "$norm_want" ] && return 0
+  printf "  ${YELLOW}⚠  Пресет '${name}' рассчитан на сервисы: %s (сейчас: %s)${NC}\n" "$want" "$cur"
+  printf "  ${GREEN}1.${NC} Выровнять (записать набор, лишнее запущенное — остановить)\n"
+  printf "  ${RED}0.${NC} Оставить как есть\n"
+  printf "  ${CYAN}👉 Пункт [0]:${NC} "
+  local how
+  pread -r how || how=""
+  case "$how" in
+    1) ;;
+    *) log_info "  Набор сервисов оставлен как есть"; return 0 ;;
+  esac
+  local s cname
+  for s in $cur; do
+    case " $want " in
+      *" $s "*) ;;
+      *)
+        svc_disable "$s"
+        cname=$(svc_container "$s" 2>/dev/null || true)
+        if [ -n "$cname" ] && svc_running "$s" 2>/dev/null; then
+          log_warn "  ⚠  Останавливаю лишний ${cname} (перезапуск переживет только unless-stopped)"
+          docker stop "$cname" >/dev/null 2>&1 || log_error "  ❌ Не удалось остановить ${cname}"
+        fi
+        ;;
+    esac
+  done
+  for s in $want; do
+    svc_enable "$s"
+  done
+  log_info "  ✓ Набор сервисов: $(svc_load_enabled) (поднять — следующим вопросом)"
+  return 0
+}
+
 # preset_pick — нумерованный выбор пресета из списка (динамика по PRESETS_DIR).
 # Печатает имя в stdout, весь UI — строго в stderr (как ask).
 # Возврат 1 = отмена (пусто/0/EOF). Неверный номер — повтор запроса.
@@ -1225,6 +1283,7 @@ cmd_apply() {
     return 1
   fi
   if [ "$yes" != true ]; then
+    preset_align_services "$name" || return 1
     printf "  ${CYAN}👉 Поднять сервисы сейчас? [y/N]:${NC} "
     local ans2
     pread -r ans2 || ans2=""

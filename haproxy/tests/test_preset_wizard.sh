@@ -17,7 +17,7 @@ mkdir -p "$TMP/stream" "$TMP/web" "$TMP/custom"
 # Сценарий пользователя web-direct sites: email, режим, два сайта, конец списка,
 # blackhole/timeouts/check/logs по дефолту (пусто), подтвердить запись (y), сервисы не поднимать (n).
 printf '%s\n' 't@e.com' 'sites' 'a.com' '8080' 'b.com' '9090' '' '' '' '' '' > "$TMP/tty-in"
-printf '%s\n' '' 'y' 'n' >> "$TMP/tty-in"
+printf '%s\n' '' 'y' '1' 'n' >> "$TMP/tty-in"
 
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply web-direct > "$1/session.log" 2>&1' _ "$TMP" "$PROJ" \
   || { printf "  FAIL: визард завис или упал (таймаут/код)\n"; fail=1; }
@@ -45,6 +45,9 @@ grep -q '"host=a.com to=127.0.0.1:8080"' "$TMP/sites.conf" \
 grep -q 'sites.conf записан' "$TMP/session.log" \
   && printf "  ok: сессия завершена записью\n" \
   || { printf "  FAIL: сессия не завершена\n"; fail=1; }
+[ "$(cat "$TMP/.enabled_services" 2>/dev/null)" = "web acme" ] \
+  && printf "  ok: align записал набор пресета\n" \
+  || { printf "  FAIL: align не записал набор\n"; fail=1; }
 
 # When: stream-vision SELFSTEAL=no + xhttp — STUB_DOMAIN не спрашивается, визард не виснет.
 SV="$TMP/sv"
@@ -66,13 +69,14 @@ grep -q '"host=x.cdn.example.com use=xhttp path=/data/"' "$SV/sites.conf" \
 CR="$TMP/crlf"
 mkdir -p "$CR/stream" "$CR/web" "$CR/custom"
 printf '%s\r\n' 't@e.com' 'sites' 'a.com' '8080' '' '' '' '' '' > "$CR/tty-in"
-printf '%s\r\n' '' 'y' 'n' >> "$CR/tty-in"
+printf '%s\r\n' '' 'y' '0' 'n' >> "$CR/tty-in"
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply web-direct > "$1/session.log" 2>&1' _ "$CR" "$PROJ" \
   || { printf "  FAIL: CRLF-визард завис/упал\n"; fail=1; }
 grep -q '^ACME_EMAIL="t@e.com"$' "$CR/sites.conf" \
   && grep -q '"host=a.com to=127.0.0.1:8080"' "$CR/sites.conf" \
   && ! grep -q $'\r' "$CR/sites.conf" \
-  && printf "  ok: CRLF-ввод переваривается чисто\n" \
+  && [ ! -f "$CR/.enabled_services" ] \
+  && printf "  ok: CRLF-ввод переваривается чисто, keep не пишет набор\n" \
   || { printf "  FAIL: CRLF-ввод\n"; fail=1; }
 
 # Выбор из списка: номер вместо имени.
@@ -118,8 +122,9 @@ mkdir -p "$WP/stream" "$WP/web" "$WP/custom"
 cp "$PROJ/tests/fixtures/sites6-stream-selfsteal.conf" "$WP/sites.conf"
 cp "$PROJ/tests/fixtures/expected6-stream-selfsteal-stream.cfg" "$WP/stream/haproxy.cfg"
 cp "$PROJ/tests/fixtures/expected6-stream-selfsteal-web.cfg" "$WP/web/haproxy.cfg"
-# Ответы xray-direct (дефолты), затем: 1 (затереть), ДА (снос), y (применить), n (без up).
-printf '%s\n' 't@e.com' 'drop.example.com' '8080' 'deny' 'off' 'off' 'sites-50s' 'off' 'off' '1' 'ДА' 'y' 'y' 'n' > "$WP/tty-in"
+# Ответы xray-direct (дефолты), затем: 1 (затереть), ДА (снос), y (проверка),
+# y (применить), 1 (align), n (без up).
+printf '%s\n' 't@e.com' 'drop.example.com' '8080' 'deny' 'off' 'off' 'sites-50s' 'off' 'off' '1' 'ДА' 'y' 'y' '1' 'n' > "$WP/tty-in"
 timeout 25 bash -c 'PRESET_TTY="$1/tty-in" HAPROXY_DIR_OVERRIDE="$1" PRESETS_DIR_OVERRIDE="$2/presets" bash "$2/scripts/preset.sh" apply xray-direct > "$1/session.log" 2>&1' _ "$WP" "$PROJ" \
   || { printf "  FAIL: apply со сносом упал/вис\n"; fail=1; }
 grep -q 'ВНИМАНИЕ' "$WP/session.log" \

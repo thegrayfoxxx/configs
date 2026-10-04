@@ -456,6 +456,36 @@ EOF
   rm -rf "$TMP"
 }
 
+# --- пресет без services-файла: вопроса выравнивания нет ---
+{
+  TMP="$(mktmp)"
+  trap 'rm -rf "$TMP"' EXIT
+  mkdir -p "$TMP/presets/nosvc"
+  cat > "$TMP/presets/nosvc/preset.conf" << 'EOF'
+ACME_EMAIL="{{ACME_EMAIL}}"
+WEB_ROUTES=(
+  "host={{D}} to=127.0.0.1:8080"
+)
+GLOBAL_OPTS=(
+  "bind_web=*:443"
+  "blackhole=deny"
+)
+EOF
+  cat > "$TMP/presets/nosvc/questions" << 'EOF'
+ACME_EMAIL|Email|mail@example.com|email
+D|Домен|x.example.com|domain
+EOF
+  printf 't@e.com\na.com\n\ny\nn\n' > "$TMP/tty-in"
+  out=$(PRESET_TTY="$TMP/tty-in" PRESETS_DIR_OVERRIDE="$TMP/presets" HAPROXY_DIR_OVERRIDE="$TMP" bash "$PROJ/scripts/preset.sh" apply nosvc 2>&1)
+  echo "$out" | grep -q '"host=a.com to=127.0.0.1:8080"' \
+    && ! echo "$out" | grep -q 'Выровнять' \
+    && [ ! -f "$TMP/.enabled_services" ] \
+    && printf "  ok: без services-файла вопросов нет\n" \
+    || { printf "  FAIL: services-опциональность\n"; fail=1; }
+  trap - EXIT
+  rm -rf "$TMP"
+}
+
 # --- #if/#else юнит на временном пресете ---
 {
   TMP="$(mktmp)"
