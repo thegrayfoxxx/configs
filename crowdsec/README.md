@@ -431,11 +431,16 @@ docker exec crowdsec-lapi cscli bouncers list
 # Логи баунсера
 docker compose logs crowdsec-bouncer
 
-# Проверить правила блокировки
+# Проверить правила блокировки (iptables/ipset-бэкенд)
 sudo ipset list crowdsec-blacklists-0 -t
+
+# Проверить правила блокировки (nftables-бэкенд)
+sudo nft list table ip crowdsec
+sudo nft list table ip6 crowdsec6
 ```
 
-В строке `Number of entries` — количество заблокированных IP.
+В строке `Number of entries` (ipset) — количество заблокированных IP.
+`./node.sh → пункт 2` показывает оба бэкенда сразу (nft-подсчёт приблизительный).
 
 **Принудительно проверить блокировку (создать тестовое решение):**
 
