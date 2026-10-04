@@ -6,6 +6,65 @@ source "${SCRIPT_DIR}/scripts/lib/common.sh"
 
 SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 
+# Подсчёт блокировок: сначала ipset (iptables-бэкенд), затем nftables.
+# Только чтение, ничего не ставит. Подсчёт приблизительный
+# (grep-подсчёт IP в дампе таблицы), точности достаточно для статуса.
+show_blocks() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    log_warn "  ⚠️  sudo не установлен — блокировки не проверить"
+    return 0
+  fi
+  if ! sudo -n true 2>/dev/null; then
+    log_warn "  ⚠️  Нет прав sudo без пароля (требуется NOPASSWD) — блокировки не проверить"
+    return 0
+  fi
+
+  local found=0
+  local entries=""
+  local dump=""
+  local count=0
+
+  # 1. ipset (iptables-бэкенд баунсера)
+  if command -v ipset >/dev/null 2>&1; then
+    entries=$(sudo -n ipset list crowdsec-blacklists-0 -t 2>/dev/null \
+      | grep "Number of entries" \
+      | awk '{print $4}')
+    if [ -n "$entries" ]; then
+      log_info "  ✅ iptables/ipset: $entries IP в блоке"
+      found=1
+    fi
+  fi
+
+  # 2. nftables (таблицы crowdsec/crowdsec6 из crowdsec-firewall-bouncer.yaml)
+  if command -v nft >/dev/null 2>&1; then
+    dump=$(sudo -n nft list table ip crowdsec 2>/dev/null || true)
+    if [ -n "$dump" ]; then
+      count=$(printf "%s" "$dump" \
+        | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?' \
+        | sort -u | wc -l)
+      log_info "  ✅ nftables (table crowdsec): ~${count} IP в блоке"
+      found=1
+    fi
+    dump=$(sudo -n nft list table ip6 crowdsec6 2>/dev/null || true)
+    if [ -n "$dump" ]; then
+      count=$(printf "%s" "$dump" \
+        | grep -oE '[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,}(:[0-9.]+)?(/[0-9]{1,3})?' \
+        | sort -u | wc -l)
+      log_info "  ✅ nftables (table crowdsec6): ~${count} IP в блоке"
+      found=1
+    fi
+  fi
+
+  if [ "$found" = "0" ]; then
+    log_warn "  ⚠️  Сеты блокировок не найдены"
+    printf "  Возможно, баунсер ещё не получал решений или не запущен\n"
+    printf "  Проверь: ${CYAN}docker compose logs crowdsec-bouncer${NC}\n"
+  fi
+  if ! command -v ipset >/dev/null 2>&1 && ! command -v nft >/dev/null 2>&1; then
+    log_warn "  ⚠️  Ни ipset, ни nft не установлены — проверить можно только через логи баунсера"
+  fi
+}
+
 show_status() {
   printf "\n"
   log_warn "═══ СТАТУС ═══"
@@ -28,31 +87,10 @@ show_status() {
     log_warn "  ⚠️  host_logs_status недоступна (обнови common.sh)"
   fi
 
-  # ipset
+  # Блокировки (ipset → nftables fallback, только чтение)
   printf "\n"
-  printf "  ${CYAN}🛡️  Блокировки (ipset):${NC}\n"
-  if command -v ipset >/dev/null 2>&1; then
-    if command -v sudo >/dev/null 2>&1; then
-      if ! sudo -n true 2>/dev/null; then
-        log_warn "  ⚠️  Нет прав sudo для ipset (требуется NOPASSWD)"
-      else
-        local entries
-        entries=$(sudo -n ipset list crowdsec-blacklists-0 -t 2>/dev/null \
-          | grep "Number of entries" \
-          | awk '{print $4}')
-        if [ -n "$entries" ]; then
-          log_info "  ✅ IP в блоке: $entries"
-        else
-          log_warn "  ⚠️  Список crowdsec-blacklists-0 не найден"
-          printf "  Возможно, баунсер ещё не создал его\n"
-        fi
-      fi
-    else
-      log_warn "  ⚠️  sudo не установлен"
-    fi
-  else
-    log_warn "  ⚠️  ipset не установлен"
-  fi
+  printf "  ${CYAN}🛡️  Блокировки:${NC}\n"
+  show_blocks
 }
 
 start_with_preflight() {
