@@ -9,7 +9,7 @@ CSCLI="docker exec crowdsec-lapi cscli"
 cd "$(dirname "$0")" || exit 1
 
 # Имена, которые нельзя удалять этим скриптом (служебные, не ноды)
-PROTECTED_NAMES="local-bouncer dashboard"
+PROTECTED_NAMES="local-bouncer dashboard localhost"
 
 # ─── ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ─────────────────────────────────
 
@@ -47,15 +47,24 @@ match_base() {
   done
 }
 
-# Все записи LAPI с базовым именем: точное совпадение + варианты имя@IP
-# (один ключ баунсера с разных IP плодит такие записи).
-# $1 = machines|bouncers, $2 = базовое имя. Печатает по одной на строку.
-find_entries() {
-  local kind="$1" base="$2"
+# Все записи LAPI для базы ноды в роли: оба нейминга (дефис и подчёркивание)
+# + варианты имя@IP (один ключ баунсера с разных IP плодит такие записи).
+# $1 = machines|bouncers, $2 = база ноды, $3 = роль (agent|bouncer).
+# Печатает по одной на строку.
+find_role_entries() {
+  local kind="$1" base="$2" role="$3"
   local all=()
   mapfile -t all < <(list_names "$kind") || true
   [ "${#all[@]}" -eq 0 ] && return 0
-  match_base "$base" "${all[@]}"
+  match_base "${base}-${role}" "${all[@]}"
+  match_base "${base}_${role}" "${all[@]}"
+}
+
+# Точное присутствие записи в списке (для перепроверки после delete).
+# $1 = machines|bouncers, $2 = полное имя. Возвращает 0 если есть.
+entry_exists() {
+  local kind="$1" name="$2"
+  list_names "$kind" | grep -Fxq "$name"
 }
 
 # Удаление одной записи LAPI.
@@ -71,7 +80,7 @@ delete_entry() {
     log_info "    ✅ Готово"
     return 0
   fi
-  if [ -z "$(find_entries "$kind" "$name")" ]; then
+  if ! entry_exists "$kind" "$name"; then
     log_info "    ✅ Уже отсутствует (удалена каскадом)"
     return 0
   fi
@@ -80,7 +89,9 @@ delete_entry() {
 }
 
 # Пронумерованный выбор ноды из зарегистрированных агентов.
-# Строка вида: us6 (баунсер: us6-bouncer, us6-bouncer@172.22.0.1).
+# Оба нейминга: X-agent (дефис) и X_agent (подчёркивание, старые ручные регистрации).
+# Строка дефисной: us6 (баунсер: us6-bouncer, us6-bouncer@172.22.0.1).
+# Строка подчёркнутой: us5 (агент us5_agent; баунсер: us5_bouncer, ...).
 # Баунсеры без агента идут отдельной секцией сирот.
 # Меню печатает в stderr, выбранное базовое имя — в stdout.
 # Возвращает 1, если выбрать не из чего (пустой LAPI / не распарсилось)
@@ -92,22 +103,25 @@ pick_node() {
   [ -z "$agents" ] && return 1
   bouncers=$(list_names bouncers || true)
 
-  # Базы нод: *-agent (срезать @IP, потом -agent), дедуп, без служебных
+  # Базы нод из агентов обоих неймингов, дедуп, без служебных.
+  # agent_of[база] = полное имя агента (чтобы показать нейминг).
   local -A seen=()
+  local -A agent_of=()
   local bases=()
   local e="" b=""
   while IFS= read -r e; do
     [ -n "$e" ] || continue
     e="${e%%@*}"
     case "$e" in
-      *-agent)
-        b="${e%-agent}"
-        if ! is_protected "$e" && [ -z "${seen[$b]:-}" ]; then
-          seen[$b]=1
-          bases+=("$b")
-        fi
-        ;;
+      *-agent) b="${e%-agent}" ;;
+      *_agent) b="${e%_agent}" ;;
+      *) continue ;;
     esac
+    if ! is_protected "$e" && [ -z "${seen[$b]:-}" ]; then
+      seen[$b]=1
+      agent_of[$b]="$e"
+      bases+=("$b")
+    fi
   done < <(printf "%s\n" "$agents")
 
   [ "${#bases[@]}" -eq 0 ] && return 1
@@ -117,6 +131,14 @@ pick_node() {
     mapfile -t ball < <(printf "%s\n" "$bouncers") || true
   fi
 
+  # Записи баунсеров базы в обоих неймингах. Печатает по одной на строку.
+  base_bouncers() {
+    # $1 = база
+    [ "${#ball[@]}" -eq 0 ] && return 0
+    match_base "$1-bouncer" "${ball[@]}"
+    match_base "$1_bouncer" "${ball[@]}"
+  }
+
   printf "\n" >&2
   printf "  ${CYAN}📋 Зарегистрированные ноды:${NC}\n" >&2
   local i=1
@@ -125,13 +147,17 @@ pick_node() {
     # $1 = база, $2 = подпись скобки
     local b="$1" tag="$2"
     local bent=()
-    if [ "${#ball[@]}" -gt 0 ]; then
-      mapfile -t bent < <(match_base "${b}-bouncer" "${ball[@]}") || true
+    mapfile -t bent < <(base_bouncers "$b") || true
+    local agent_hint=""
+    if [ "${agent_of[$b]:-}" != "$b-agent" ] && [ -n "${agent_of[$b]:-}" ]; then
+      agent_hint="агент ${agent_of[$b]}; "
     fi
     if [ "${#bent[@]}" -gt 0 ]; then
       local joined=""
       joined=$(printf "%s, " "${bent[@]}")
-      printf "  ${GREEN}%d.${NC} %s (%s: %s)\n" "$i" "$b" "$tag" "${joined%, }" >&2
+      printf "  ${GREEN}%d.${NC} %s (%s%s: %s)\n" "$i" "$b" "$agent_hint" "$tag" "${joined%, }" >&2
+    elif [ -n "$agent_hint" ]; then
+      printf "  ${GREEN}%d.${NC} %s (%sбез баунсера)\n" "$i" "$b" "$agent_hint" >&2
     else
       printf "  ${GREEN}%d.${NC} %s (без баунсера)\n" "$i" "$b" >&2
     fi
@@ -142,8 +168,8 @@ pick_node() {
     show_brackets "$b" "баунсер"
   done
 
-  # Сироты: баунсеры *-bouncer, чьей базы нет среди агентов.
-  # Баунсеры без суффикса -bouncer пропускаем — из них не вывести базу.
+  # Сироты: баунсеры обоих неймингов, чьей базы нет среди агентов.
+  # Баунсеры без суффикса -bouncer/_bouncer пропускаем — из них не вывести базу.
   local orphans=()
   if [ "${#ball[@]}" -gt 0 ]; then
     local -A seen_orphan=()
@@ -152,14 +178,14 @@ pick_node() {
       [ -n "$be" ] || continue
       be="${be%%@*}"
       case "$be" in
-        *-bouncer)
-          bb="${be%-bouncer}"
-          if [ -z "${seen[$bb]:-}" ] && [ -z "${seen_orphan[$bb]:-}" ] && ! is_protected "$be"; then
-            seen_orphan[$bb]=1
-            orphans+=("$bb")
-          fi
-          ;;
+        *-bouncer) bb="${be%-bouncer}" ;;
+        *_bouncer) bb="${be%_bouncer}" ;;
+        *) continue ;;
       esac
+      if [ -z "${seen[$bb]:-}" ] && [ -z "${seen_orphan[$bb]:-}" ] && ! is_protected "$be"; then
+        seen_orphan[$bb]=1
+        orphans+=("$bb")
+      fi
     done < <(printf "%s\n" "$bouncers")
   fi
   if [ "${#orphans[@]}" -gt 0 ]; then
@@ -223,30 +249,30 @@ NODE_NAME="${NODE_NAME//$'\r'/}"
 AGENT_NAME="$NODE_NAME-agent"
 BOUNCER_NAME="$NODE_NAME-bouncer"
 
-# Защита служебных имён
-if is_protected "$AGENT_NAME" || is_protected "$BOUNCER_NAME"; then
+# Защита служебных имён (проверяем базу и оба нейминга)
+if is_protected "$NODE_NAME" || is_protected "$AGENT_NAME" || is_protected "$BOUNCER_NAME"; then
   die "❌ '${NODE_NAME}' — служебное имя, удалять его этим скриптом нельзя."
 fi
 
-# Разведка: все записи пары, включая варианты имя@IP
-# (один ключ баунсера с разных IP плодит такие записи)
+# Разведка: все записи ноды в обоих неймингах (дефис и подчёркивание),
+# включая варианты имя@IP (один ключ баунсера с разных IP плодит такие записи)
 printf "\n"
 printf "  ${CYAN}🔍 Ищу '%s' в LAPI...${NC}\n" "$NODE_NAME"
 AGENT_ENTRIES=()
 BOUNCER_ENTRIES=()
-mapfile -t AGENT_ENTRIES < <(find_entries machines "$AGENT_NAME") || true
-mapfile -t BOUNCER_ENTRIES < <(find_entries bouncers "$BOUNCER_NAME") || true
+mapfile -t AGENT_ENTRIES < <(find_role_entries machines "$NODE_NAME" agent) || true
+mapfile -t BOUNCER_ENTRIES < <(find_role_entries bouncers "$NODE_NAME" bouncer) || true
 if [ "${#AGENT_ENTRIES[@]}" -gt 0 ]; then
   log_info "    Агенты:"
   for e in "${AGENT_ENTRIES[@]}"; do printf "      • %s\n" "$e"; done
 else
-  log_warn "    ⚠️  Агент '${AGENT_NAME}' не найден"
+  log_warn "    ⚠️  Агент '${NODE_NAME}-agent' / '${NODE_NAME}_agent' не найден"
 fi
 if [ "${#BOUNCER_ENTRIES[@]}" -gt 0 ]; then
   log_info "    Баунсеры:"
   for e in "${BOUNCER_ENTRIES[@]}"; do printf "      • %s\n" "$e"; done
 else
-  log_warn "    ⚠️  Баунсер '${BOUNCER_NAME}' не найден"
+  log_warn "    ⚠️  Баунсер '${NODE_NAME}-bouncer' / '${NODE_NAME}_bouncer' не найден"
 fi
 
 if [ "${#AGENT_ENTRIES[@]}" -eq 0 ] && [ "${#BOUNCER_ENTRIES[@]}" -eq 0 ]; then
