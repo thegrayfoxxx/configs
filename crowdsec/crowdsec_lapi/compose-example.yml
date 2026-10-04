@@ -12,9 +12,10 @@ services:
       - crowdsec-data:/var/lib/crowdsec/data
       - crowdsec-config:/etc/crowdsec
       - ./config/acquis.yaml:/etc/crowdsec/acquis.yaml
-      - /var/log/auth.log:/var/log/auth.log:ro
-      - /var/log/syslog:/var/log/syslog:ro
-      - /var/log/kern.log:/var/log/kern.log:ro
+      # Весь /var/log монтируется директорией: так Docker не создаёт
+      # директории-заглушки вместо отсутствующих файлов (is a directory).
+      # Файлы auth.log/syslog/kern.log создаёт rsyslog (ставится preflight-проверкой).
+      - /var/log:/var/log:ro
     ports:
       - 127.0.0.1:${API_LOCAL_PORT}:8080 # Можно изменить в .env
     healthcheck:
