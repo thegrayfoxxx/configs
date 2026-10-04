@@ -72,7 +72,8 @@ flowchart TB
 
 Конфигурации протестированы на **Debian 11/12/13** и **Ubuntu 22.04/24.04**.
 
-> Требования ноды и LAPI-хоста: Debian или Ubuntu + `sudo` (или root).
+> Требования ноды и LAPI-хоста: Debian или Ubuntu, запуск от root
+> (`su -` или `sudo ./node.sh start`).
 > `rsyslog` обязателен для файлов `/var/log/auth.log`, `syslog`, `kern.log` —
 > preflight-проверка ставит и запускает его автоматически.
 
@@ -428,15 +429,15 @@ docker exec crowdsec-lapi cscli bouncers list
 Баунсер работает в режиме host network и блокирует IP через iptables/nftables.
 
 ```bash
-# Логи баунсера
+# Запускать от root. Логи баунсера:
 docker compose logs crowdsec-bouncer
 
 # Проверить правила блокировки (iptables/ipset-бэкенд)
-sudo ipset list crowdsec-blacklists-0 -t
+ipset list crowdsec-blacklists-0 -t
 
 # Проверить правила блокировки (nftables-бэкенд)
-sudo nft list table ip crowdsec
-sudo nft list table ip6 crowdsec6
+nft list table ip crowdsec
+nft list table ip6 crowdsec6
 ```
 
 В строке `Number of entries` (ipset) — количество заблокированных IP.
@@ -446,8 +447,8 @@ sudo nft list table ip6 crowdsec6
 
 ```bash
 docker exec crowdsec-lapi cscli decisions add --ip 1.2.3.4 --duration 1m
-# Подожди 10-15 секунд и проверь:
-sudo ipset list crowdsec-blacklists-0 2>/dev/null | grep 1.2.3.4 || sudo nft list table ip crowdsec 2>/dev/null | grep 1.2.3.4
+# Подожди 10-15 секунд и проверь (от root):
+ipset list crowdsec-blacklists-0 2>/dev/null | grep 1.2.3.4 || nft list table ip crowdsec 2>/dev/null | grep 1.2.3.4
 # Удали:
 docker exec crowdsec-lapi cscli decisions delete --ip 1.2.3.4
 ```
@@ -593,4 +594,4 @@ cd crowdsec_node/scripts
 - **curl** (для скачивания списков и обновлений)
 - **tar** (для распаковки обновлений)
 - **openssl** (для генерации паролей в `setup-node.sh`)
-- **ipset** + **sudo** (на ноде для просмотра блокировок)
+- **ipset** / **nft** (опционально, на ноде для просмотра блокировок)

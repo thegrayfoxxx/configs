@@ -46,22 +46,13 @@ require_cmd() {
 # Проверяет ОС (Debian/Ubuntu), ставит rsyslog при отсутствии,
 # чинит директории-заглушки от Docker и создаёт файлы логов.
 # Идемпотентна: повторный прогон ничего не ломает.
+# Рассчитана на запуск от root; без прав каждая операция честно
+# сообщает об этом вместо молчаливого падения.
 # Использование: ensure_host_logs [compose_dir]
-_host_sudo() {
-  if [ "$(id -u)" -eq 0 ]; then
-    printf ""
-    return 0
-  fi
-  if command -v sudo >/dev/null 2>&1; then
-    printf "sudo"
-    return 0
-  fi
-  return 1
-}
+NEED_ROOT_HINT="Похоже, нет прав — запусти от root: su - -c './node.sh start' или sudo ./node.sh start"
 
 ensure_host_logs() {
   local compose_dir="${1:-}"
-  local sudo_prefix=""
   local f=""
 
   # --- 1. ОС: любой Debian / Ubuntu ---
@@ -96,36 +87,18 @@ ensure_host_logs() {
   else
     log_warn "  ⚠️  rsyslog отсутствует, устанавливаю..."
     require_cmd apt-get "Установи rsyslog вручную: apt install rsyslog"
-    if ! sudo_prefix="$(_host_sudo)"; then
-      die "❌ Нужны root-права для установки rsyslog. Запусти под root или поставь sudo: apt install sudo"
-    fi
-    if [ -n "$sudo_prefix" ]; then
-      $sudo_prefix apt-get update && $sudo_prefix apt-get install -y rsyslog
-    else
-      apt-get update && apt-get install -y rsyslog
-    fi
+    apt-get update && apt-get install -y rsyslog \
+      || die "❌ Не удалось установить rsyslog. ${NEED_ROOT_HINT}"
     if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-      if [ -n "$sudo_prefix" ]; then
-        $sudo_prefix systemctl enable --now rsyslog || die "❌ Не удалось запустить rsyslog"
-      else
-        systemctl enable --now rsyslog || die "❌ Не удалось запустить rsyslog"
-      fi
+      systemctl enable --now rsyslog \
+        || die "❌ Не удалось запустить rsyslog. ${NEED_ROOT_HINT}"
     elif command -v service >/dev/null 2>&1; then
-      if [ -n "$sudo_prefix" ]; then
-        $sudo_prefix service rsyslog start || true
-      else
-        service rsyslog start || true
-      fi
+      service rsyslog start || true
     fi
     log_info "  ✅ rsyslog установлен"
   fi
 
-  # --- 3. sudo для работы с /var/log ---
-  if ! sudo_prefix="$(_host_sudo)"; then
-    die "❌ Нужны root-права для /var/log. Запусти под root или поставь sudo."
-  fi
-
-  # --- 4. compose-файл для down перед удалением заглушек ---
+  # --- 3. compose-файл для down перед удалением заглушек ---
   local compose_file=""
   if [ -n "$compose_dir" ] && [ -f "$compose_dir/compose.yml" ]; then
     compose_file="$compose_dir/compose.yml"
@@ -133,7 +106,7 @@ ensure_host_logs() {
     compose_file="$compose_dir/compose.yaml"
   fi
 
-  # --- 5. Чиним заглушки и создаём файлы ---
+  # --- 4. Чиним заглушки и создаём файлы ---
   local need_restart=0
   for f in /var/log/auth.log /var/log/syslog /var/log/kern.log; do
     if [ -d "$f" ] && [ ! -L "$f" ]; then
@@ -142,49 +115,40 @@ ensure_host_logs() {
         (cd "$compose_dir" && docker compose down >/dev/null 2>&1) || true
       fi
       # Удаляем ТОЛЬКО пустую директорию, непустую не трогаем
-      if [ -n "$sudo_prefix" ]; then
-        if ! $sudo_prefix rmdir "$f" 2>/dev/null; then
+      if ! rmdir "$f" 2>/dev/null; then
+        if [ -n "$(ls -A "$f" 2>/dev/null)" ]; then
           die "❌ $f — непустая директория. Разбери вручную и повтори."
+        else
+          die "❌ Не могу удалить заглушку $f. ${NEED_ROOT_HINT}"
         fi
-        $sudo_prefix touch "$f" && $sudo_prefix chmod 644 "$f"
-      else
-        if ! rmdir "$f" 2>/dev/null; then
-          die "❌ $f — непустая директория. Разбери вручную и повтори."
-        fi
-        touch "$f" && chmod 644 "$f"
       fi
+      touch "$f" 2>/dev/null || die "❌ Не могу создать $f. ${NEED_ROOT_HINT}"
+      chmod 644 "$f" 2>/dev/null || true
       need_restart=1
       log_info "  ✅ $f — заглушка удалена, файл создан"
     elif [ ! -e "$f" ]; then
       log_warn "  ⚠️  $f отсутствует, создаю..."
-      if [ -n "$sudo_prefix" ]; then
-        $sudo_prefix touch "$f" && $sudo_prefix chmod 644 "$f"
-      else
-        touch "$f" && chmod 644 "$f"
-      fi
+      touch "$f" 2>/dev/null || die "❌ Не могу создать $f. ${NEED_ROOT_HINT}"
+      chmod 644 "$f" 2>/dev/null || true
       need_restart=1
       log_info "  ✅ $f создан"
     elif [ ! -f "$f" ]; then
       die "❌ $f — не обычный файл. Разбери вручную и повтори."
     fi
     if [ ! -r "$f" ]; then
-      die "❌ $f нечитаем. Проверь права."
+      die "❌ $f нечитаем. Проверь права (возможно, нужен root)."
     fi
   done
 
-  # --- 6. Перезапуск rsyslog чтобы начал писать ---
+  # --- 5. Перезапуск rsyslog чтобы начал писать ---
   if [ "$need_restart" = "1" ]; then
     if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-      if [ -n "$sudo_prefix" ]; then
-        $sudo_prefix systemctl restart rsyslog >/dev/null 2>&1 || true
-      else
-        systemctl restart rsyslog >/dev/null 2>&1 || true
-      fi
+      systemctl restart rsyslog >/dev/null 2>&1 || true
       sleep 3
     fi
   fi
 
-  # --- 7. Предупреждение о старом compose.yml с файловыми маунтами ---
+  # --- 6. Предупреждение о старом compose.yml с файловыми маунтами ---
   if [ -n "$compose_file" ] && grep -q "/var/log/auth.log:" "$compose_file" 2>/dev/null; then
     log_warn "  ⚠️  compose.yml содержит старые файловые маунты /var/log/*.log."
     log_warn "  ⚠️  Обнови из шаблона: cp compose-example.yml compose.yml (сохрани свои правки путей!)"
