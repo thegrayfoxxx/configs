@@ -58,8 +58,30 @@ find_entries() {
   match_base "$base" "${all[@]}"
 }
 
+# Удаление одной записи LAPI.
+# При падении перепроверяет список: запись могла исчезнуть каскадом
+# (удаление базового имени тянет варианты имя@IP) или гонкой —
+# тогда это успех, а не ошибка. Иначе показывает текст ошибки cscli.
+# $1 = machines|bouncers, $2 = имя, $3 = подпись для вывода.
+delete_entry() {
+  local kind="$1" name="$2" label="$3"
+  local err=""
+  printf "  ${CYAN}🗑️  Удаляю %s '%s'...${NC}\n" "$label" "$name"
+  if err=$($CSCLI "$kind" delete "$name" 2>&1); then
+    log_info "    ✅ Готово"
+    return 0
+  fi
+  if [ -z "$(find_entries "$kind" "$name")" ]; then
+    log_info "    ✅ Уже отсутствует (удалена каскадом)"
+    return 0
+  fi
+  log_error "    ❌ Не удалось удалить '${name}': ${err:-неизвестная ошибка}"
+  return 1
+}
+
 # Пронумерованный выбор ноды из зарегистрированных агентов.
 # Строка вида: us6 (баунсер: us6-bouncer, us6-bouncer@172.22.0.1).
+# Баунсеры без агента идут отдельной секцией сирот.
 # Меню печатает в stderr, выбранное базовое имя — в stdout.
 # Возвращает 1, если выбрать не из чего (пустой LAPI / не распарсилось)
 # или пользователь выбрал ручной ввод, — тогда вызывающий спрашивает
@@ -98,7 +120,10 @@ pick_node() {
   printf "\n" >&2
   printf "  ${CYAN}📋 Зарегистрированные ноды:${NC}\n" >&2
   local i=1
-  for b in "${bases[@]}"; do
+  local show_brackets
+  show_brackets() {
+    # $1 = база, $2 = подпись скобки
+    local b="$1" tag="$2"
     local bent=()
     if [ "${#ball[@]}" -gt 0 ]; then
       mapfile -t bent < <(match_base "${b}-bouncer" "${ball[@]}") || true
@@ -106,12 +131,46 @@ pick_node() {
     if [ "${#bent[@]}" -gt 0 ]; then
       local joined=""
       joined=$(printf "%s, " "${bent[@]}")
-      printf "  ${GREEN}%d.${NC} %s (баунсер: %s)\n" "$i" "$b" "${joined%, }" >&2
+      printf "  ${GREEN}%d.${NC} %s (%s: %s)\n" "$i" "$b" "$tag" "${joined%, }" >&2
     else
       printf "  ${GREEN}%d.${NC} %s (без баунсера)\n" "$i" "$b" >&2
     fi
     i=$((i + 1))
+  }
+  local b=""
+  for b in "${bases[@]}"; do
+    show_brackets "$b" "баунсер"
   done
+
+  # Сироты: баунсеры *-bouncer, чьей базы нет среди агентов.
+  # Баунсеры без суффикса -bouncer пропускаем — из них не вывести базу.
+  local orphans=()
+  if [ "${#ball[@]}" -gt 0 ]; then
+    local -A seen_orphan=()
+    local be="" bb=""
+    while IFS= read -r be; do
+      [ -n "$be" ] || continue
+      be="${be%%@*}"
+      case "$be" in
+        *-bouncer)
+          bb="${be%-bouncer}"
+          if [ -z "${seen[$bb]:-}" ] && [ -z "${seen_orphan[$bb]:-}" ] && ! is_protected "$be"; then
+            seen_orphan[$bb]=1
+            orphans+=("$bb")
+          fi
+          ;;
+      esac
+    done < <(printf "%s\n" "$bouncers")
+  fi
+  if [ "${#orphans[@]}" -gt 0 ]; then
+    printf "\n" >&2
+    printf "  ${YELLOW}⚠️  Баунсеры-сироты (агента нет):${NC}\n" >&2
+    local o=""
+    for o in "${orphans[@]}"; do
+      show_brackets "$o" "только баунсер"
+      bases+=("$o")
+    done
+  fi
   printf "  ${GREEN}0.${NC} Ввести имя вручную\n" >&2
   printf "\n" >&2
   printf "  ${CYAN}👉 Номер (0 — вручную):${NC} " >&2
@@ -220,24 +279,12 @@ printf "\n"
 ERRORS=0
 if [ "${#AGENT_ENTRIES[@]}" -gt 0 ]; then
   for e in "${AGENT_ENTRIES[@]}"; do
-    printf "  ${CYAN}🗑️  Удаляю агента '%s'...${NC}\n" "$e"
-    if $CSCLI machines delete "$e" > /dev/null 2>&1; then
-      log_info "    ✅ Агент удалён"
-    else
-      log_error "    ❌ Не удалось удалить агента '%s'" "$e"
-      ERRORS=1
-    fi
+    delete_entry machines "$e" "агента" || ERRORS=1
   done
 fi
 if [ "${#BOUNCER_ENTRIES[@]}" -gt 0 ]; then
   for e in "${BOUNCER_ENTRIES[@]}"; do
-    printf "  ${CYAN}🗑️  Удаляю баунсера '%s'...${NC}\n" "$e"
-    if $CSCLI bouncers delete "$e" > /dev/null 2>&1; then
-      log_info "    ✅ Баунсер удалён"
-    else
-      log_error "    ❌ Не удалось удалить баунсера '%s'" "$e"
-      ERRORS=1
-    fi
+    delete_entry bouncers "$e" "баунсера" || ERRORS=1
   done
 fi
 
