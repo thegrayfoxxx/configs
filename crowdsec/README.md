@@ -298,6 +298,7 @@ docker exec crowdsec-lapi cscli bouncers list
 cd crowdsec_lapi
 ./lapi.sh                      # → пункт 4
 # или напрямую:
+bash scripts/delete-node.sh              # выбор из списка нод
 bash scripts/delete-node.sh us6          # с подтверждением
 bash scripts/delete-node.sh us6 --yes    # без подтверждения
 ```
