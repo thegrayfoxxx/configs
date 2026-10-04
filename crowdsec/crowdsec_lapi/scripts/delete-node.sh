@@ -14,7 +14,8 @@ PROTECTED_NAMES="local-bouncer dashboard"
 # ─── ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ─────────────────────────────────
 
 is_protected() {
-  local name="$1"
+  # Сравнение по части до @: записи вида имя@IP тоже защищены
+  local name="${1%%@*}"
   local p=""
   for p in $PROTECTED_NAMES; do
     if [ "$name" = "$p" ]; then
@@ -24,45 +25,91 @@ is_protected() {
   return 1
 }
 
-exists_machine() {
-  $CSCLI machines list 2>/dev/null | grep -qw "$1"
+# Первая колонка cscli-таблицы: режем рамки и шапку, по имени на строку.
+list_names() {
+  # $1 = machines|bouncers
+  $CSCLI "$1" list 2>/dev/null \
+    | awk '!/─/ && !/^[[:space:]]*NAME([[:space:]]|$)/ && NF {print $1}' || true
 }
 
-exists_bouncer() {
-  $CSCLI bouncers list 2>/dev/null | grep -qw "$1"
+# Совпадения базы в уже полученном списке имён: точное + имя@IP.
+# $1 = база, остальные аргументы = имена. Печатает по одному на строку.
+match_base() {
+  local base="$1"
+  shift
+  local e=""
+  for e in "$@"; do
+    [ -n "$e" ] || continue
+    # Звёздочка вне кавычек: "$base" точное совпадение, "$base"@* — варианты имя@IP
+    if [ "$e" = "$base" ] || [[ "$e" == "$base"@* ]]; then
+      printf "%s\n" "$e"
+    fi
+  done
+}
+
+# Все записи LAPI с базовым именем: точное совпадение + варианты имя@IP
+# (один ключ баунсера с разных IP плодит такие записи).
+# $1 = machines|bouncers, $2 = базовое имя. Печатает по одной на строку.
+find_entries() {
+  local kind="$1" base="$2"
+  local all=()
+  mapfile -t all < <(list_names "$kind") || true
+  [ "${#all[@]}" -eq 0 ] && return 0
+  match_base "$base" "${all[@]}"
 }
 
 # Пронумерованный выбор ноды из зарегистрированных агентов.
+# Строка вида: us6 (баунсер: us6-bouncer, us6-bouncer@172.22.0.1).
 # Меню печатает в stderr, выбранное базовое имя — в stdout.
 # Возвращает 1, если выбрать не из чего (пустой LAPI / не распарсилось)
 # или пользователь выбрал ручной ввод, — тогда вызывающий спрашивает
 # имя вручную.
 pick_node() {
-  local raw=""
-  raw=$($CSCLI machines list 2>/dev/null || true)
-  [ -z "$raw" ] && return 1
+  local agents="" bouncers=""
+  agents=$(list_names machines || true)
+  [ -z "$agents" ] && return 1
+  bouncers=$(list_names bouncers || true)
 
-  local names=()
-  local n=""
-  while IFS= read -r n; do
-    [ -n "$n" ] || continue
-    case "$n" in
+  # Базы нод: *-agent (срезать @IP, потом -agent), дедуп, без служебных
+  local -A seen=()
+  local bases=()
+  local e="" b=""
+  while IFS= read -r e; do
+    [ -n "$e" ] || continue
+    e="${e%%@*}"
+    case "$e" in
       *-agent)
-        n="${n%-agent}"
-        if ! is_protected "${n}-agent" && ! is_protected "$n"; then
-          names+=("$n")
+        b="${e%-agent}"
+        if ! is_protected "$e" && [ -z "${seen[$b]:-}" ]; then
+          seen[$b]=1
+          bases+=("$b")
         fi
         ;;
     esac
-  done < <(printf "%s\n" "$raw" | awk '!/─/ && !/^[[:space:]]*NAME([[:space:]]|$)/ && NF {print $1}')
+  done < <(printf "%s\n" "$agents")
 
-  [ "${#names[@]}" -eq 0 ] && return 1
+  [ "${#bases[@]}" -eq 0 ] && return 1
+
+  local ball=()
+  if [ -n "$bouncers" ]; then
+    mapfile -t ball < <(printf "%s\n" "$bouncers") || true
+  fi
 
   printf "\n" >&2
   printf "  ${CYAN}📋 Зарегистрированные ноды:${NC}\n" >&2
   local i=1
-  for n in "${names[@]}"; do
-    printf "  ${GREEN}%d.${NC} %s\n" "$i" "$n" >&2
+  for b in "${bases[@]}"; do
+    local bent=()
+    if [ "${#ball[@]}" -gt 0 ]; then
+      mapfile -t bent < <(match_base "${b}-bouncer" "${ball[@]}") || true
+    fi
+    if [ "${#bent[@]}" -gt 0 ]; then
+      local joined=""
+      joined=$(printf "%s, " "${bent[@]}")
+      printf "  ${GREEN}%d.${NC} %s (баунсер: %s)\n" "$i" "$b" "${joined%, }" >&2
+    else
+      printf "  ${GREEN}%d.${NC} %s (без баунсера)\n" "$i" "$b" >&2
+    fi
     i=$((i + 1))
   done
   printf "  ${GREEN}0.${NC} Ввести имя вручную\n" >&2
@@ -74,11 +121,11 @@ pick_node() {
   if [ "$choice" = "0" ]; then
     return 1
   fi
-  if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#names[@]}" ]; then
+  if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#bases[@]}" ]; then
     log_error "  ❌ Нет такого номера" >&2
     return 1
   fi
-  printf "%s" "${names[$((choice - 1))]}"
+  printf "%s" "${bases[$((choice - 1))]}"
   return 0
 }
 
@@ -122,25 +169,28 @@ if is_protected "$AGENT_NAME" || is_protected "$BOUNCER_NAME"; then
   die "❌ '${NODE_NAME}' — служебное имя, удалять его этим скриптом нельзя."
 fi
 
-# Разведка: что из пары существует
+# Разведка: все записи пары, включая варианты имя@IP
+# (один ключ баунсера с разных IP плодит такие записи)
 printf "\n"
 printf "  ${CYAN}🔍 Ищу '%s' в LAPI...${NC}\n" "$NODE_NAME"
-HAS_AGENT=0
-HAS_BOUNCER=0
-if exists_machine "$AGENT_NAME"; then
-  HAS_AGENT=1
-  log_info "    Агент '${AGENT_NAME}' найден"
+AGENT_ENTRIES=()
+BOUNCER_ENTRIES=()
+mapfile -t AGENT_ENTRIES < <(find_entries machines "$AGENT_NAME") || true
+mapfile -t BOUNCER_ENTRIES < <(find_entries bouncers "$BOUNCER_NAME") || true
+if [ "${#AGENT_ENTRIES[@]}" -gt 0 ]; then
+  log_info "    Агенты:"
+  for e in "${AGENT_ENTRIES[@]}"; do printf "      • %s\n" "$e"; done
 else
   log_warn "    ⚠️  Агент '${AGENT_NAME}' не найден"
 fi
-if exists_bouncer "$BOUNCER_NAME"; then
-  HAS_BOUNCER=1
-  log_info "    Баунсер '${BOUNCER_NAME}' найден"
+if [ "${#BOUNCER_ENTRIES[@]}" -gt 0 ]; then
+  log_info "    Баунсеры:"
+  for e in "${BOUNCER_ENTRIES[@]}"; do printf "      • %s\n" "$e"; done
 else
   log_warn "    ⚠️  Баунсер '${BOUNCER_NAME}' не найден"
 fi
 
-if [ "$HAS_AGENT" = "0" ] && [ "$HAS_BOUNCER" = "0" ]; then
+if [ "${#AGENT_ENTRIES[@]}" -eq 0 ] && [ "${#BOUNCER_ENTRIES[@]}" -eq 0 ]; then
   printf "\n"
   log_info "  ✅ Нечего удалять — такой ноды нет в LAPI"
   exit 0
@@ -150,8 +200,12 @@ fi
 if [ "$AUTO_YES" = "0" ]; then
   printf "\n"
   printf "  ${YELLOW}Будет удалено:${NC}\n"
-  [ "$HAS_AGENT" = "1" ] && printf "    • агент %s\n" "$AGENT_NAME"
-  [ "$HAS_BOUNCER" = "1" ] && printf "    • баунсер %s\n" "$BOUNCER_NAME"
+  if [ "${#AGENT_ENTRIES[@]}" -gt 0 ]; then
+    for e in "${AGENT_ENTRIES[@]}"; do printf "    • агент %s\n" "$e"; done
+  fi
+  if [ "${#BOUNCER_ENTRIES[@]}" -gt 0 ]; then
+    for e in "${BOUNCER_ENTRIES[@]}"; do printf "    • баунсер %s\n" "$e"; done
+  fi
   printf "\n"
   printf "  ${CYAN}👉 Удалить? [y/N]:${NC} "
   read -r answer < /dev/tty
@@ -164,23 +218,27 @@ fi
 # Удаление
 printf "\n"
 ERRORS=0
-if [ "$HAS_AGENT" = "1" ]; then
-  printf "  ${CYAN}🗑️  Удаляю агента '%s'...${NC}\n" "$AGENT_NAME"
-  if $CSCLI machines delete "$AGENT_NAME" > /dev/null 2>&1; then
-    log_info "    ✅ Агент удалён"
-  else
-    log_error "    ❌ Не удалось удалить агента"
-    ERRORS=1
-  fi
+if [ "${#AGENT_ENTRIES[@]}" -gt 0 ]; then
+  for e in "${AGENT_ENTRIES[@]}"; do
+    printf "  ${CYAN}🗑️  Удаляю агента '%s'...${NC}\n" "$e"
+    if $CSCLI machines delete "$e" > /dev/null 2>&1; then
+      log_info "    ✅ Агент удалён"
+    else
+      log_error "    ❌ Не удалось удалить агента '%s'" "$e"
+      ERRORS=1
+    fi
+  done
 fi
-if [ "$HAS_BOUNCER" = "1" ]; then
-  printf "  ${CYAN}🗑️  Удаляю баунсера '%s'...${NC}\n" "$BOUNCER_NAME"
-  if $CSCLI bouncers delete "$BOUNCER_NAME" > /dev/null 2>&1; then
-    log_info "    ✅ Баунсер удалён"
-  else
-    log_error "    ❌ Не удалось удалить баунсера"
-    ERRORS=1
-  fi
+if [ "${#BOUNCER_ENTRIES[@]}" -gt 0 ]; then
+  for e in "${BOUNCER_ENTRIES[@]}"; do
+    printf "  ${CYAN}🗑️  Удаляю баунсера '%s'...${NC}\n" "$e"
+    if $CSCLI bouncers delete "$e" > /dev/null 2>&1; then
+      log_info "    ✅ Баунсер удалён"
+    else
+      log_error "    ❌ Не удалось удалить баунсера '%s'" "$e"
+      ERRORS=1
+    fi
+  done
 fi
 
 printf "\n"
