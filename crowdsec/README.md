@@ -234,6 +234,7 @@ docker compose up -d
 | `1` | Обновить конфиги из репозитория |
 | `2` | Зарегистрировать удалённую ноду |
 | `3` | Traffic Guard — управление блоклистами |
+| `4` | Удалить удалённую ноду (агент + баунсер) |
 | `0` | Выход |
 
 ### Команды управления LAPI
@@ -291,15 +292,23 @@ docker exec crowdsec-lapi cscli machines list
 docker exec crowdsec-lapi cscli bouncers list
 ```
 
-**Удаление агента (машины):**
+**Удаление ноды (агент + баунсер) — через скрипт:**
+
+```bash
+cd crowdsec_lapi
+./lapi.sh                      # → пункт 4
+# или напрямую:
+bash scripts/delete-node.sh us6          # с подтверждением
+bash scripts/delete-node.sh us6 --yes    # без подтверждения
+```
+
+Скрипт найдёт `us6-agent` и `us6-bouncer`, спросит подтверждение и удалит пару.
+Служебные имена (`local-bouncer`, `dashboard`) удалять откажется.
+
+**Удаление вручную (fallback):**
 
 ```bash
 docker exec crowdsec-lapi cscli machines delete имя-агента
-```
-
-**Удаление баунсера:**
-
-```bash
 docker exec crowdsec-lapi cscli bouncers delete имя-баунсера
 ```
 

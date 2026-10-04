@@ -14,6 +14,7 @@ show_menu() {
     printf "  ${GREEN}1.${NC} 🔄 Обновить конфиги (скачать из репозитория)\n"
     printf "  ${GREEN}2.${NC} 🖥️  Зарегистрировать удалённую ноду\n"
     printf "  ${GREEN}3.${NC} 🛡️  Traffic Guard (блоклисты)\n"
+    printf "  ${GREEN}4.${NC} 🗑️  Удалить удалённую ноду\n"
     printf "  ${RED}0.${NC} ❌ Выход\n"
     printf "\n"
     printf "${CYAN}👉 Пункт:${NC} "
@@ -50,6 +51,15 @@ show_menu() {
           log_error "❌ traffic-guard.sh не найден"
           printf "\n"
           read -p "[Enter] в меню..." < /dev/tty
+        fi
+        ;;
+      4)
+        clear_screen
+        print_header "УДАЛЕНИЕ НОДЫ"
+        if [ -f "${SCRIPTS_DIR}/delete-node.sh" ]; then
+          bash "${SCRIPTS_DIR}/delete-node.sh" < /dev/tty
+        else
+          log_error "❌ delete-node.sh не найден"
         fi
         ;;
       0) exit 0 ;;
