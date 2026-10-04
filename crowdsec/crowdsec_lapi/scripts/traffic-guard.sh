@@ -250,11 +250,11 @@ setup_cron() {
     printf "  Скрипту нужен доступ к ${CYAN}docker${NC}.\n"
     printf "  Запусти от root и настрой заново:\n"
     printf "\n"
-    printf "     ${CYAN}sudo bash traffic-guard.sh${NC}\n"
+    printf "     ${CYAN}su - -c 'bash traffic-guard.sh'${NC}\n"
     printf "     → выбери пункт 6${NC}\n"
     printf "\n"
     printf "  Или добавь в crontab root вручную:\n"
-    printf "     ${CYAN}sudo crontab -e${NC}\n"
+    printf "     ${CYAN}crontab -e${NC}\n"
     printf "     Добавь: ${CYAN}0 3 * * * cd ${SCRIPT_DIR} && bash traffic-guard.sh install${NC}\n"
     printf "\n"
     read -p "[Enter] назад..." < /dev/tty

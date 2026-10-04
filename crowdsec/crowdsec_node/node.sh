@@ -9,16 +9,8 @@ SCRIPTS_DIR="${SCRIPT_DIR}/scripts"
 # Подсчёт блокировок: сначала ipset (iptables-бэкенд), затем nftables.
 # Только чтение, ничего не ставит. Подсчёт приблизительный
 # (grep-подсчёт IP в дампе таблицы), точности достаточно для статуса.
+# Без прав просто ничего не увидит — об этом честно сообщается.
 show_blocks() {
-  if ! command -v sudo >/dev/null 2>&1; then
-    log_warn "  ⚠️  sudo не установлен — блокировки не проверить"
-    return 0
-  fi
-  if ! sudo -n true 2>/dev/null; then
-    log_warn "  ⚠️  Нет прав sudo без пароля (требуется NOPASSWD) — блокировки не проверить"
-    return 0
-  fi
-
   local found=0
   local entries=""
   local dump=""
@@ -26,7 +18,7 @@ show_blocks() {
 
   # 1. ipset (iptables-бэкенд баунсера)
   if command -v ipset >/dev/null 2>&1; then
-    entries=$(sudo -n ipset list crowdsec-blacklists-0 -t 2>/dev/null \
+    entries=$(ipset list crowdsec-blacklists-0 -t 2>/dev/null \
       | grep "Number of entries" \
       | awk '{print $4}')
     if [ -n "$entries" ]; then
@@ -37,7 +29,7 @@ show_blocks() {
 
   # 2. nftables (таблицы crowdsec/crowdsec6 из crowdsec-firewall-bouncer.yaml)
   if command -v nft >/dev/null 2>&1; then
-    dump=$(sudo -n nft list table ip crowdsec 2>/dev/null || true)
+    dump=$(nft list table ip crowdsec 2>/dev/null || true)
     if [ -n "$dump" ]; then
       count=$(printf "%s" "$dump" \
         | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?' \
@@ -45,7 +37,7 @@ show_blocks() {
       log_info "  ✅ nftables (table crowdsec): ~${count} IP в блоке"
       found=1
     fi
-    dump=$(sudo -n nft list table ip6 crowdsec6 2>/dev/null || true)
+    dump=$(nft list table ip6 crowdsec6 2>/dev/null || true)
     if [ -n "$dump" ]; then
       count=$(printf "%s" "$dump" \
         | grep -oE '[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,}(:[0-9.]+)?(/[0-9]{1,3})?' \
@@ -57,7 +49,7 @@ show_blocks() {
 
   if [ "$found" = "0" ]; then
     log_warn "  ⚠️  Сеты блокировок не найдены"
-    printf "  Возможно, баунсер ещё не получал решений или не запущен\n"
+    printf "  Либо нет прав (запусти статус от root), либо баунсер ещё не получал решений\n"
     printf "  Проверь: ${CYAN}docker compose logs crowdsec-bouncer${NC}\n"
   fi
   if ! command -v ipset >/dev/null 2>&1 && ! command -v nft >/dev/null 2>&1; then
