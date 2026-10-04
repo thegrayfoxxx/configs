@@ -68,19 +68,19 @@ print_instructions() {
 
   printf "${YELLOW}═══ 1. С НУЛЯ (на ноде ещё ничего нет) ═══${NC}\n"
   printf "\n"
-  printf "%b\n" "${CYAN}curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_node' && cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && docker compose up -d${NC}"
+  printf "%b\n" "${CYAN}curl -L https://github.com/thegrayfoxxx/configs/archive/main.tar.gz | tar xz --wildcards --strip=2 '*/crowdsec/crowdsec_node' && cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && ./node.sh start${NC}"
   printf "\n"
   printf "\n"
 
   printf "${YELLOW}═══ 2. РЕПОЗИТОРИЙ УЖЕ СКАЧАН ═══${NC}\n"
   printf "\n"
-  printf "%b\n" "${CYAN}cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && docker compose up -d${NC}"
+  printf "%b\n" "${CYAN}cd crowdsec_node && cp compose-example.yml compose.yml && cp .env.example .env && $env_cmd && ./node.sh start${NC}"
   printf "\n"
   printf "\n"
 
   printf "${YELLOW}═══ 3. ТОЛЬКО ОБНОВИТЬ .ENV ═══${NC}\n"
   printf "\n"
-  printf "%b\n" "${CYAN}cd crowdsec_node && $env_cmd && docker compose up -d${NC}"
+  printf "%b\n" "${CYAN}cd crowdsec_node && $env_cmd && ./node.sh start${NC}"
   printf "\n"
   printf "\n"
 }

@@ -70,7 +70,11 @@ flowchart TB
 
 ## Тестовое окружение
 
-Конфигурации протестированы на **Debian 12** и **Debian 13**.
+Конфигурации протестированы на **Debian 11/12/13** и **Ubuntu 22.04/24.04**.
+
+> Требования ноды и LAPI-хоста: Debian или Ubuntu + `sudo` (или root).
+> `rsyslog` обязателен для файлов `/var/log/auth.log`, `syslog`, `kern.log` —
+> preflight-проверка ставит и запускает его автоматически.
 
 ## Порядок настройки
 
@@ -146,7 +150,10 @@ CROWDSEC_PASSWORD=пароль-для-панели
 
 | Параметр | Что сделать |
 |---|---|
-| Пути к логам | Подставить актуальные пути для твоей системы |
+| Пути к логам | `/var/log` уже смонтирован директорией — дополнительные пути (nginx/traefik) дописать по аналогии |
+
+> Не возвращай файловые маунты вида `/var/log/auth.log:/var/log/auth.log:ro` —
+> Docker создаёт на их месте директории-заглушки (`is a directory, ignoring it`).
 
 > Пути к логам могут отличаться в зависимости от дистрибутива. На некоторых системах вместо `auth.log` может быть `/var/log/secure`.
 
@@ -349,7 +356,7 @@ API_KEY=токен-баунсера
 
 | Параметр | Что сделать |
 |---|---|
-| Пути к логам | Подставить актуальные пути для твоей системы |
+| Пути к логам | `/var/log` уже смонтирован директорией — дополнительные пути (nginx/traefik) дописать по аналогии |
 
 #### Шаг 3 — зарегистрируй ноду на LAPI
 
@@ -370,11 +377,15 @@ docker exec crowdsec-lapi cscli machines add имя-агента \
 docker exec crowdsec-lapi cscli bouncers add имя-баунсера
 ```
 
-#### Шаг 4 — запусти ноду
+#### Шаг 4 — запусти ноду (штатный путь)
 
 ```bash
-docker compose up -d
+./node.sh start
+# или интерактивно: ./node.sh → пункт 4
 ```
+
+Preflight сам проверит Debian/Ubuntu, поставит `rsyslog`, починит
+директории-заглушки и создаст `/var/log/auth.log`, `syslog`, `kern.log`.
 
 ### Управление нодой через скрипт
 
@@ -387,8 +398,9 @@ docker compose up -d
 | Пункт | Действие |
 |---|---|
 | `1` | Обновить конфиги из репозитория |
-| `2` | Статус (контейнеры + количество блокировок) |
-| `3` | Перезапустить контейнеры |
+| `2` | Статус (контейнеры + хостовые логи + количество блокировок) |
+| `3` | Перезапустить контейнеры (с preflight) |
+| `4` | Запустить (preflight + up -d) — штатный путь |
 | `0` | Выход |
 
 ### Просмотр статуса
@@ -419,11 +431,16 @@ docker exec crowdsec-lapi cscli bouncers list
 # Логи баунсера
 docker compose logs crowdsec-bouncer
 
-# Проверить правила блокировки
+# Проверить правила блокировки (iptables/ipset-бэкенд)
 sudo ipset list crowdsec-blacklists-0 -t
+
+# Проверить правила блокировки (nftables-бэкенд)
+sudo nft list table ip crowdsec
+sudo nft list table ip6 crowdsec6
 ```
 
-В строке `Number of entries` — количество заблокированных IP.
+В строке `Number of entries` (ipset) — количество заблокированных IP.
+`./node.sh → пункт 2` показывает оба бэкенда сразу (nft-подсчёт приблизительный).
 
 **Принудительно проверить блокировку (создать тестовое решение):**
 
@@ -446,6 +463,10 @@ filenames:
 labels:
   type: syslog
 ```
+
+Файлы создаёт `rsyslog` — preflight (`./node.sh start`) ставит его автоматически.
+Если в логах агента `is a directory, ignoring it` — значит на хосте директории-заглушки
+от старого файлового маунта: запусти `./node.sh start`, он их починит.
 
 Чтобы добавить другие источники (например, `/var/log/nginx/access.log`), допиши их в `filenames` и пробрось соответствующий volume в `compose.yml`. После изменения перезапусти агента:
 
@@ -510,6 +531,8 @@ docker compose restart crowdsec-agent
 | `die()` | Вывод ошибки и выход |
 | `print_header(title, icon)` | Шапка меню в рамке |
 | `require_cmd(cmd, hint)` | Проверка наличия утилиты |
+| `ensure_host_logs([compose_dir])` | Preflight: Debian/Ubuntu, установка rsyslog, починка заглушек и файлов |
+| `host_logs_status()` | Только чтение: статус ОС, rsyslog и файлов для экрана статуса |
 | `lapi_is_running()` | Проверка, запущен ли контейнер `crowdsec-lapi` (только в LAPI) |
 | `require_lapi()` | То же, но с `die()` при ошибке (только в LAPI) |
 
@@ -538,7 +561,7 @@ cd crowdsec_lapi/scripts
 
 # Node
 cd crowdsec_node/scripts
-./update.sh && cd .. && docker compose up -d
+./update.sh && cd .. && cp compose-example.yml compose.yml && ./node.sh start
 ```
 
 ## Переменные окружения
