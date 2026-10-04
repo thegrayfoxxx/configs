@@ -2,7 +2,7 @@ services:
   haproxy-stream:
     image: haproxy:alpine
     container_name: haproxy-stream
-    restart: always
+    restart: unless-stopped
     user: root
     network_mode: host
     profiles:
@@ -18,7 +18,7 @@ services:
   haproxy-web:
     image: haproxy:alpine
     container_name: haproxy-web
-    restart: always
+    restart: unless-stopped
     # root как у stream: web-direct слушает привилегированный :443 напрямую.
     user: root
     network_mode: host
@@ -36,7 +36,7 @@ services:
   acme:
     image: neilpang/acme.sh:latest
     container_name: acme
-    restart: always
+    restart: unless-stopped
     network_mode: host
     command: daemon
     profiles:
